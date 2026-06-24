@@ -1,0 +1,77 @@
+{
+  "project_type": "Developer Observability Dashboard",
+  "theme": "Dark",
+  "archetype": "4 (Swiss & High-Contrast) + Terminal/Retro-Futurism twist",
+  "design_philosophy": "Ultra-Minimal, Developer-Centric, Data-Transparent. The UI must feel like a CLI tool evolved into a GUI—stark, data-dense, void of unnecessary decoration like soft shadows or generic purple gradients.",
+  "colors": {
+    "background": "#000000",
+    "surface_primary": "#0A0A0A",
+    "surface_secondary": "#121212",
+    "border": "#27272A",
+    "text_primary": "#FFFFFF",
+    "text_secondary": "#A1A1AA",
+    "text_muted": "#52525B",
+    "accent_alert": "#FF3B30",
+    "accent_warning": "#FFCC00",
+    "accent_data_1": "#FFFFFF",
+    "accent_data_2": "#71717A",
+    "gradient_policy": "STRICTLY FORBIDDEN to use generic purple-blue gradients. If gradients are needed, use monochromatic fades (black to transparent) or strict signal colors (red to transparent)."
+  },
+  "typography": {
+    "fonts": {
+      "heading": "'JetBrains Mono', 'IBM Plex Mono', monospace",
+      "body": "'Inter', sans-serif",
+      "data": "'JetBrains Mono', monospace"
+    },
+    "rules": [
+      "Inter is BANNED for headings. Headings MUST be monospace.",
+      "Numerical data and tables MUST use monospace, tabular-nums.",
+      "Strict left-alignment for all text and data, unless specifically right-aligning numerical columns in tables.",
+      "Use tracking-tight for large text, tracking-[0.2em] uppercase for small labels and table headers."
+    ]
+  },
+  "layout": {
+    "grid_system": "The 'Control Room' Grid. grid-cols-1 md:grid-cols-4 lg:grid-cols-6 with gap-4.",
+    "spacing": "Dense padding (p-4 or p-6 inside cards) to fit maximum data while keeping optical alignment.",
+    "surfaces": "Grid Borders: Expose the skeleton. Use flat backgrounds with 1px sharp borders (border-border). No border-radius (rounded-none) or very minimal (rounded-sm). Remove all Shadcn default shadows."
+  },
+  "components": {
+    "charts": "Use Recharts. Minimalist axes, no background grids (or very faint 10% opacity dashed lines). Use stark white or gray for lines. Highlight anomalies or thresholds in Signal Red.",
+    "tables": "Dense rows. No hover highlights on rows unless necessary. border-b border-zinc-800. Right-aligned numerical data.",
+    "system_tray_widget": "Floating compact widget at bottom-right (fixed z-50). 'Terminal' style: black bg, 1px border, monospace text showing 'LIVE: [Model Name] [Usage]'. Include a blinking CSS dot for active status.",
+    "buttons": "Square, sharp edges. Primary: bg-white text-black hover:bg-zinc-200. Secondary: border border-zinc-700 bg-transparent text-white hover:bg-zinc-800.",
+    "file_upload": "A stark dashed-border dropzone in the header or an empty state, taking up a wide block. Use monospace instructions ('DROP CSV/JSON HERE')."
+  },
+  "motion": {
+    "hover_states": "Instant or very fast transitions (duration-100). No slow fades.",
+    "loading": "ASCII art loaders or simple monospace text cycling ('Loading...', 'Parsing...', 'Rendering...'). No generic spinners.",
+    "alerts": "Flash background slightly red when threshold is breached, then settle to a solid red border."
+  },
+  "icons": {
+    "library": "lucide-react",
+    "style": "Use sharp, technical icons. Minimal line weight."
+  },
+  "accessibility": {
+    "contrast": "Ensure all text against black meets APCA/WCAG standards. Use text-white for primary, text-zinc-400 for secondary.",
+    "testing": "All interactive and key informational elements MUST include a 'data-testid' attribute (e.g., data-testid='upload-dropzone', data-testid='usage-chart')."
+  },
+  "media": {
+    "backgrounds": [
+      {
+        "url": "https://images.pexels.com/photos/7599718/pexels-photo-7599718.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "category": "empty_state_overlay",
+        "description": "Dark wire mesh pattern. Use as a fixed background image with opacity-10 or mix-blend-overlay to give texture to the deep black background, especially in empty states before data import."
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "You MUST build this as a dark-mode first, highly dense developer dashboard.",
+    "Use Shadcn UI components but strip away all 'Vercel-look' softness (remove rounded corners, remove shadows). Update .js component files, not .tsx.",
+    "Do not build a generic layout. Follow the 'Control Room' grid philosophy where every pixel is utilized and panels stretch to match neighbors.",
+    "Implement a CSV/JSON parsing utility linked to a file input.",
+    "Implement the floating 'System Tray' widget showing live/mocked real-time consumption.",
+    "Use Recharts for the consumption charts. Ensure a line chart tracks token usage over time with a distinct threshold line.",
+    "Calculate and show cost for input/output tokens per model (Claude API, Codex, Antigravity). Do NOT implement a budget feature.",
+    "Ensure 'data-testid' attributes are added thoroughly for QA."
+  ]
+}
