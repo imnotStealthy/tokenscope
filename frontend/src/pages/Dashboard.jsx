@@ -8,6 +8,7 @@ import ModelTable from "@/components/tokenscope/ModelTable";
 import ThresholdPanel from "@/components/tokenscope/ThresholdPanel";
 import RecentEntries from "@/components/tokenscope/RecentEntries";
 import SystemTray from "@/components/tokenscope/SystemTray";
+import ApiKeyPanel from "@/components/tokenscope/ApiKeyPanel";
 import { fetchSummary, fetchThreshold, clearAllUsage } from "@/lib/tokenApi";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
@@ -54,6 +55,8 @@ export default function Dashboard() {
       />
 
       <main className="px-6 py-6 space-y-6 max-w-[1600px] mx-auto relative z-10">
+        <ApiKeyPanel />
+
         <UploadDropzone onImported={refresh} />
 
         <SummaryCards summary={summary} threshold={threshold} />

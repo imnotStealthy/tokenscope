@@ -3,10 +3,41 @@ import axios from "axios";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
 
+const API_KEY_STORAGE = "tokenscope.api_key";
+
+export const getApiKey = () => {
+  try {
+    return localStorage.getItem(API_KEY_STORAGE) || "";
+  } catch (e) {
+    return "";
+  }
+};
+
+export const setApiKey = (key) => {
+  try {
+    if (key) localStorage.setItem(API_KEY_STORAGE, key);
+    else localStorage.removeItem(API_KEY_STORAGE);
+  } catch (e) {
+    /* ignore */
+  }
+};
+
 export const api = axios.create({
   baseURL: API,
   timeout: 30000,
 });
+
+// Inject X-API-Key on every request when one is stored.
+api.interceptors.request.use((config) => {
+  const k = getApiKey();
+  if (k) {
+    config.headers = config.headers || {};
+    config.headers["X-API-Key"] = k;
+  }
+  return config;
+});
+
+export const fetchAuthStatus = () => api.get(`/auth/check`).then((r) => r.data);
 
 export const fetchSummary = (days = 30) =>
   api.get(`/usage/summary`, { params: { days } }).then((r) => r.data);

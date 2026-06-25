@@ -2,7 +2,7 @@
 TokenScope - Backend API for tracking token consumption across
 Claude API, Codex (OpenAI) and Antigravity (Gemini/Claude/GPT).
 """
-from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Query, Header, Depends
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -27,7 +27,21 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
+# ----- Security knobs -----
+API_KEY = os.environ.get("TOKENSCOPE_API_KEY", "").strip()
+MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", 5 * 1024 * 1024))  # 5 MB
+MAX_IMPORT_ROWS = int(os.environ.get("MAX_IMPORT_ROWS", 50_000))
+
 app = FastAPI(title="TokenScope API")
+
+
+async def require_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
+    """If TOKENSCOPE_API_KEY is set in the env, all writes require a matching header.
+    If unset, this is a no-op (preserves the local-first default UX)."""
+    if not API_KEY:
+        return
+    if not x_api_key or x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key")
 api_router = APIRouter(prefix="/api")
 
 
@@ -90,33 +104,33 @@ class UsageEntry(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     tool: str  # claude_api | codex | antigravity
-    model: str
-    underlying_model: Optional[str] = None  # for Antigravity: claude/gpt/gemini under the hood
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cost_usd: float = 0.0
-    session_id: Optional[str] = None
-    note: Optional[str] = None
+    model: str = Field(max_length=200)
+    underlying_model: Optional[str] = Field(default=None, max_length=200)
+    input_tokens: int = Field(default=0, ge=0, le=10**12)
+    output_tokens: int = Field(default=0, ge=0, le=10**12)
+    cost_usd: float = Field(default=0.0, ge=0.0, le=10**9)
+    session_id: Optional[str] = Field(default=None, max_length=200)
+    note: Optional[str] = Field(default=None, max_length=2000)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class UsageEntryCreate(BaseModel):
     tool: str
-    model: str
-    underlying_model: Optional[str] = None
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cost_usd: Optional[float] = None
-    session_id: Optional[str] = None
-    note: Optional[str] = None
+    model: str = Field(max_length=200)
+    underlying_model: Optional[str] = Field(default=None, max_length=200)
+    input_tokens: int = Field(default=0, ge=0, le=10**12)
+    output_tokens: int = Field(default=0, ge=0, le=10**12)
+    cost_usd: Optional[float] = Field(default=None, ge=0.0, le=10**9)
+    session_id: Optional[str] = Field(default=None, max_length=200)
+    note: Optional[str] = Field(default=None, max_length=2000)
     timestamp: Optional[datetime] = None
 
 
 class Threshold(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: "global")
-    daily_tokens: int = 1_000_000  # default 1M tokens per day
-    daily_cost_usd: float = 10.0  # default $10 per day
+    daily_tokens: int = Field(default=1_000_000, ge=1, le=10**12)
+    daily_cost_usd: float = Field(default=10.0, ge=0.0, le=10**9)
 
 
 def _serialize(doc: dict) -> dict:
@@ -171,13 +185,13 @@ def _parse_entry_row(row: dict) -> Optional[UsageEntryCreate]:
 
     return UsageEntryCreate(
         tool=tool,
-        model=model,
-        underlying_model=underlying,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        cost_usd=cost,
-        session_id=g("session_id", "session"),
-        note=g("note", "notes"),
+        model=model[:200],
+        underlying_model=(underlying[:200] if underlying else None),
+        input_tokens=max(0, min(input_tokens, 10**12)),
+        output_tokens=max(0, min(output_tokens, 10**12)),
+        cost_usd=(max(0.0, min(cost, 10**9)) if cost is not None else None),
+        session_id=(str(g("session_id", "session"))[:200] if g("session_id", "session") else None),
+        note=(str(g("note", "notes"))[:2000] if g("note", "notes") else None),
         timestamp=ts,
     )
 
@@ -211,12 +225,20 @@ async def root():
     return {"name": "TokenScope API", "status": "ok"}
 
 
+@api_router.get("/auth/check")
+async def auth_check(x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")):
+    """Frontend uses this to know whether auth is required and if its key is valid."""
+    if not API_KEY:
+        return {"required": False, "valid": True}
+    return {"required": True, "valid": bool(x_api_key and x_api_key == API_KEY)}
+
+
 @api_router.get("/pricing")
 async def get_pricing():
     return PRICING
 
 
-@api_router.post("/usage", response_model=UsageEntry)
+@api_router.post("/usage", response_model=UsageEntry, dependencies=[Depends(require_api_key)])
 async def create_usage(payload: UsageEntryCreate):
     if payload.tool not in VALID_TOOLS:
         raise HTTPException(400, detail=f"tool must be one of {VALID_TOOLS}")
@@ -232,9 +254,9 @@ async def list_usage(
 ):
     q: dict = {}
     if tool:
-        q["tool"] = tool
+        q["tool"] = str(tool)
     if model:
-        q["model"] = model
+        q["model"] = str(model)
     if days:
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         q["timestamp"] = {"$gte": since}
@@ -251,7 +273,7 @@ async def list_usage(
     return out
 
 
-@api_router.delete("/usage/{entry_id}")
+@api_router.delete("/usage/{entry_id}", dependencies=[Depends(require_api_key)])
 async def delete_usage(entry_id: str):
     res = await db.usage.delete_one({"id": entry_id})
     if res.deleted_count == 0:
@@ -259,16 +281,31 @@ async def delete_usage(entry_id: str):
     return {"ok": True}
 
 
-@api_router.delete("/usage")
+@api_router.delete("/usage", dependencies=[Depends(require_api_key)])
 async def clear_usage():
     res = await db.usage.delete_many({})
     return {"deleted": res.deleted_count}
 
 
-@api_router.post("/usage/import")
+@api_router.post("/usage/import", dependencies=[Depends(require_api_key)])
 async def import_file(file: UploadFile = File(...)):
-    """Import CSV or JSON file. JSON may be a list of entries or {entries:[...]}"""
-    content = await file.read()
+    """Import CSV or JSON file. JSON may be a list of entries or {entries:[...]}.
+
+    Hardened with: max body size, max row count, bulk insert.
+    """
+    # Read in chunks to enforce a hard size cap before exhausting RAM.
+    buf = bytearray()
+    while True:
+        chunk = await file.read(64 * 1024)
+        if not chunk:
+            break
+        buf.extend(chunk)
+        if len(buf) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large (max {MAX_UPLOAD_BYTES} bytes)",
+            )
+    content = bytes(buf)
     filename = (file.filename or "").lower()
     rows: List[dict] = []
     try:
@@ -284,10 +321,24 @@ async def import_file(file: UploadFile = File(...)):
             text = content.decode("utf-8")
             reader = csv.DictReader(io.StringIO(text))
             rows = list(reader)
+    except UnicodeDecodeError:
+        raise HTTPException(400, detail="File must be UTF-8 encoded")
+    except json.JSONDecodeError as e:
+        raise HTTPException(400, detail=f"Invalid JSON: {e.msg}")
+    except csv.Error as e:
+        raise HTTPException(400, detail=f"Invalid CSV: {e}")
     except Exception as e:
         raise HTTPException(400, detail=f"Could not parse file: {e}")
 
-    inserted = 0
+    if not isinstance(rows, list):
+        raise HTTPException(400, detail="Top-level payload must be a list or object with 'entries'")
+
+    truncated = False
+    if len(rows) > MAX_IMPORT_ROWS:
+        rows = rows[:MAX_IMPORT_ROWS]
+        truncated = True
+
+    docs: List[dict] = []
     skipped = 0
     for r in rows:
         if not isinstance(r, dict):
@@ -297,13 +348,39 @@ async def import_file(file: UploadFile = File(...)):
         if parsed is None:
             skipped += 1
             continue
-        await _insert_entry(parsed)
-        inserted += 1
+        pricing_model = parsed.underlying_model or parsed.model
+        cost = parsed.cost_usd if parsed.cost_usd is not None else compute_cost(
+            pricing_model, parsed.input_tokens, parsed.output_tokens
+        )
+        entry = UsageEntry(
+            tool=parsed.tool,
+            model=parsed.model,
+            underlying_model=parsed.underlying_model,
+            input_tokens=parsed.input_tokens,
+            output_tokens=parsed.output_tokens,
+            cost_usd=cost,
+            session_id=parsed.session_id,
+            note=parsed.note,
+            timestamp=parsed.timestamp or datetime.now(timezone.utc),
+        )
+        doc = entry.model_dump()
+        doc["timestamp"] = entry.timestamp.isoformat()
+        docs.append(doc)
 
-    return {"inserted": inserted, "skipped": skipped, "total": len(rows)}
+    inserted = 0
+    if docs:
+        result = await db.usage.insert_many(docs, ordered=False)
+        inserted = len(result.inserted_ids)
+
+    return {
+        "inserted": inserted,
+        "skipped": skipped,
+        "total": len(rows),
+        "truncated": truncated,
+    }
 
 
-@api_router.post("/usage/seed")
+@api_router.post("/usage/seed", dependencies=[Depends(require_api_key)])
 async def seed_demo_data():
     """Generate demo data so the dashboard is immediately usable."""
     await db.usage.delete_many({})
@@ -438,7 +515,7 @@ async def get_threshold():
     return Threshold(**doc)
 
 
-@api_router.put("/threshold", response_model=Threshold)
+@api_router.put("/threshold", response_model=Threshold, dependencies=[Depends(require_api_key)])
 async def update_threshold(payload: Threshold):
     payload.id = "global"
     await db.thresholds.update_one(
@@ -451,13 +528,24 @@ async def update_threshold(payload: Threshold):
 
 app.include_router(api_router)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# ----- CORS hardening -----
+_raw_origins = [o.strip() for o in os.environ.get('CORS_ORIGINS', '*').split(',') if o.strip()]
+_wildcard = "*" in _raw_origins
+_cors_kwargs = {
+    "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    "allow_headers": ["Content-Type", "X-API-Key", "Authorization"],
+    "expose_headers": [],
+    "max_age": 600,
+}
+if _wildcard:
+    # Wildcard + credentials is invalid per spec, disable credentials.
+    _cors_kwargs["allow_origins"] = ["*"]
+    _cors_kwargs["allow_credentials"] = False
+else:
+    _cors_kwargs["allow_origins"] = _raw_origins
+    _cors_kwargs["allow_credentials"] = True
+
+app.add_middleware(CORSMiddleware, **_cors_kwargs)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
