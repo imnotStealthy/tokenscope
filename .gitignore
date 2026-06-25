@@ -27,8 +27,10 @@ next-env.d.ts
 
 # Production builds
 /build
+build/
 dist/
 dist
+*.exe
 
 # Environment files (comprehensive coverage)
 
@@ -86,3 +88,7 @@ android-sdk/
 credentials.json
 *.key
 .credentials
+
+# Agent / local-only memory (never commit)
+REMNANT.md
+CLAUDE.md

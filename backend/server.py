@@ -19,6 +19,8 @@ from typing import List, Optional, Annotated
 from datetime import datetime, timezone, timedelta
 from bson import ObjectId
 
+import local_sources
+
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -51,9 +53,17 @@ PRICING = {
     # Anthropic Claude
     "claude-sonnet-4-5": {"input": 3.0, "output": 15.0},
     "claude-sonnet-4.5": {"input": 3.0, "output": 15.0},
+    "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
     "claude-sonnet-4": {"input": 3.0, "output": 15.0},
+    # Opus 4.5–4.8 are $5/$25 (listed before "claude-opus-4" so loose-match hits them first);
+    # only the deprecated Opus 4 / 4.1 are $15/$75.
+    "claude-opus-4-8": {"input": 5.0, "output": 25.0},
+    "claude-opus-4-7": {"input": 5.0, "output": 25.0},
+    "claude-opus-4-6": {"input": 5.0, "output": 25.0},
+    "claude-opus-4-5": {"input": 5.0, "output": 25.0},
+    "claude-opus-4-1": {"input": 15.0, "output": 75.0},
     "claude-opus-4": {"input": 15.0, "output": 75.0},
-    "claude-opus-4-5": {"input": 15.0, "output": 75.0},
+    "claude-fable-5": {"input": 10.0, "output": 50.0},
     "claude-haiku-4-5": {"input": 1.0, "output": 5.0},
     "claude-haiku-4.5": {"input": 1.0, "output": 5.0},
     "claude-3-5-sonnet": {"input": 3.0, "output": 15.0},
@@ -106,6 +116,7 @@ class UsageEntry(BaseModel):
     tool: str  # claude_api | codex | antigravity
     model: str = Field(max_length=200)
     underlying_model: Optional[str] = Field(default=None, max_length=200)
+    project: Optional[str] = Field(default=None, max_length=400)
     input_tokens: int = Field(default=0, ge=0, le=10**12)
     output_tokens: int = Field(default=0, ge=0, le=10**12)
     cost_usd: float = Field(default=0.0, ge=0.0, le=10**9)
@@ -118,6 +129,7 @@ class UsageEntryCreate(BaseModel):
     tool: str
     model: str = Field(max_length=200)
     underlying_model: Optional[str] = Field(default=None, max_length=200)
+    project: Optional[str] = Field(default=None, max_length=400)
     input_tokens: int = Field(default=0, ge=0, le=10**12)
     output_tokens: int = Field(default=0, ge=0, le=10**12)
     cost_usd: Optional[float] = Field(default=None, ge=0.0, le=10**9)
@@ -163,6 +175,10 @@ def _parse_entry_row(row: dict) -> Optional[UsageEntryCreate]:
     if underlying:
         underlying = str(underlying).lower()
 
+    project = g("project", "repo", "workspace", "cwd", "folder")
+    if project:
+        project = str(project).replace("\\", "/").rstrip("/").lower()[:400]
+
     try:
         input_tokens = int(g("input_tokens", "prompt_tokens", "in_tokens", default=0) or 0)
         output_tokens = int(g("output_tokens", "completion_tokens", "out_tokens", default=0) or 0)
@@ -187,6 +203,7 @@ def _parse_entry_row(row: dict) -> Optional[UsageEntryCreate]:
         tool=tool,
         model=model[:200],
         underlying_model=(underlying[:200] if underlying else None),
+        project=(project or None),
         input_tokens=max(0, min(input_tokens, 10**12)),
         output_tokens=max(0, min(output_tokens, 10**12)),
         cost_usd=(max(0.0, min(cost, 10**9)) if cost is not None else None),
@@ -206,6 +223,7 @@ async def _insert_entry(create: UsageEntryCreate) -> UsageEntry:
         tool=create.tool,
         model=create.model,
         underlying_model=create.underlying_model,
+        project=create.project,
         input_tokens=create.input_tokens,
         output_tokens=create.output_tokens,
         cost_usd=cost,
@@ -249,7 +267,7 @@ async def create_usage(payload: UsageEntryCreate):
 async def list_usage(
     tool: Optional[str] = None,
     model: Optional[str] = None,
-    days: Optional[int] = Query(default=30, ge=1, le=365),
+    days: Optional[int] = Query(default=30, ge=1, le=100000),
     limit: int = Query(default=500, ge=1, le=5000),
 ):
     q: dict = {}
@@ -356,6 +374,7 @@ async def import_file(file: UploadFile = File(...)):
             tool=parsed.tool,
             model=parsed.model,
             underlying_model=parsed.underlying_model,
+            project=parsed.project,
             input_tokens=parsed.input_tokens,
             output_tokens=parsed.output_tokens,
             cost_usd=cost,
@@ -414,7 +433,7 @@ async def seed_demo_data():
 
 
 @api_router.get("/usage/summary")
-async def get_summary(days: int = Query(default=30, ge=1, le=365)):
+async def get_summary(days: int = Query(default=30, ge=1, le=100000)):
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     cursor = db.usage.find({"timestamp": {"$gte": since}}, {"_id": 0})
     items = await cursor.to_list(length=10000)
@@ -426,6 +445,7 @@ async def get_summary(days: int = Query(default=30, ge=1, le=365)):
     by_model: dict = {}
     by_day: dict = {}
     by_underlying: dict = {}
+    by_project: dict = {}
 
     for it in items:
         inp = it.get("input_tokens", 0) or 0
@@ -438,6 +458,18 @@ async def get_summary(days: int = Query(default=30, ge=1, le=365)):
         t = it.get("tool", "unknown")
         m = it.get("model", "unknown")
         u = it.get("underlying_model")
+        proj = it.get("project") or "unassigned"
+
+        bp = by_project.setdefault(proj, {
+            "project": proj,
+            "project_name": proj.split("/")[-1] if proj != "unassigned" else "unassigned",
+            "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "entries": 0, "tools": {},
+        })
+        bp["input_tokens"] += inp
+        bp["output_tokens"] += outp
+        bp["cost_usd"] += cost
+        bp["entries"] += 1
+        bp["tools"][t] = bp["tools"].get(t, 0) + inp + outp
 
         bt = by_tool.setdefault(t, {"tool": t, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "entries": 0})
         bt["input_tokens"] += inp
@@ -479,6 +511,8 @@ async def get_summary(days: int = Query(default=30, ge=1, le=365)):
         d["cost_usd"] = round(d["cost_usd"], 4)
     for d in by_underlying.values():
         d["cost_usd"] = round(d["cost_usd"], 4)
+    for d in by_project.values():
+        d["cost_usd"] = round(d["cost_usd"], 4)
 
     return {
         "totals": {
@@ -491,6 +525,7 @@ async def get_summary(days: int = Query(default=30, ge=1, le=365)):
         "by_tool": list(by_tool.values()),
         "by_model": sorted(by_model.values(), key=lambda x: -x["input_tokens"] - x["output_tokens"]),
         "by_underlying_model": list(by_underlying.values()),
+        "by_project": sorted(by_project.values(), key=lambda x: -x["input_tokens"] - x["output_tokens"]),
         "by_day": sorted(by_day.values(), key=lambda x: x["day"]),
     }
 
@@ -503,6 +538,28 @@ async def get_live():
     if not items:
         return {"live": None}
     return {"live": items[0]}
+
+
+# ----- Local source endpoints: read ~/.claude and ~/.codex directly (no DB) -----
+# Defined as sync `def` so FastAPI runs them in a threadpool (the cold scan can take
+# a few seconds) instead of blocking the event loop.
+@api_router.get("/local/status")
+def local_status():
+    return local_sources.read_local_status()
+
+
+@api_router.get("/local/summary")
+def local_summary(
+    days: int = Query(default=30, ge=1, le=100000),
+    tool: Optional[str] = None,
+):
+    t = tool if tool in VALID_TOOLS else None
+    return local_sources.read_local_summary(days=days, tool=t)
+
+
+@api_router.get("/local/utilization")
+def local_utilization():
+    return local_sources.read_local_utilization()
 
 
 @api_router.get("/threshold", response_model=Threshold)

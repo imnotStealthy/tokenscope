@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import Dashboard from "@/pages/Dashboard";
+import { LanguageProvider } from "@/lib/i18n";
 import "@/App.css";
 
 function App() {
@@ -11,7 +12,8 @@ function App() {
   }, []);
 
   return (
-    <div className="App grain min-h-screen bg-black text-white">
+    <LanguageProvider>
+    <div className="App min-h-screen bg-black text-white">
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Dashboard />} />
@@ -22,7 +24,7 @@ function App() {
         position="bottom-left"
         toastOptions={{
           style: {
-            background: "#0A0A0A",
+            background: "#000000",
             border: "1px solid #27272A",
             color: "#FFFFFF",
             borderRadius: 0,
@@ -32,6 +34,7 @@ function App() {
         }}
       />
     </div>
+    </LanguageProvider>
   );
 }
 

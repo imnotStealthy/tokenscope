@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-0.5 -0.5 12 8" role="img" aria-label="StealthyLabs" shape-rendering="crispEdges">
+  <defs>
+    <g id="se">
+      <!-- S -->
+      <rect x="0" y="0" width="5" height="1"/>
+      <rect x="0" y="1" width="1" height="2"/>
+      <rect x="0" y="3" width="5" height="1"/>
+      <rect x="4" y="4" width="1" height="2"/>
+      <rect x="0" y="6" width="5" height="1"/>
+      <!-- E -->
+      <rect x="6" y="0" width="1" height="7"/>
+      <rect x="7" y="0" width="4" height="1"/>
+      <rect x="7" y="3" width="3" height="1"/>
+      <rect x="7" y="6" width="4" height="1"/>
+    </g>
+  </defs>
+  <use href="#se" x="0.28" fill="#1fd8ff"/>
+  <use href="#se" x="-0.2" fill="#ff2e6e" opacity="0.4"/>
+  <use href="#se" fill="#ededed"/>
+</svg>

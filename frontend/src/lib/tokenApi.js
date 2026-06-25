@@ -47,6 +47,18 @@ export const fetchUsage = (params = {}) =>
 
 export const fetchLive = () => api.get(`/usage/live`).then((r) => r.data);
 
+// ----- Local sources (backend reads ~/.claude & ~/.codex directly) -----
+export const fetchLocalStatus = () =>
+  api.get(`/local/status`).then((r) => r.data);
+
+export const fetchLocalSummary = (days = 30, tool) =>
+  api
+    .get(`/local/summary`, { params: tool ? { days, tool } : { days } })
+    .then((r) => r.data);
+
+export const fetchLocalUtilization = () =>
+  api.get(`/local/utilization`, { timeout: 20000 }).then((r) => r.data);
+
 export const fetchThreshold = () => api.get(`/threshold`).then((r) => r.data);
 
 export const saveThreshold = (data) =>
@@ -96,4 +108,20 @@ export const formatNumber = (n) => {
 export const formatCost = (n) => {
   const num = Number(n || 0);
   return "$" + num.toFixed(num < 1 ? 4 : 2);
+};
+
+// Relative countdown for a reset timestamp (ISO string), e.g. "in 2h 14m".
+export const formatReset = (iso) => {
+  if (!iso) return "—";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "—";
+  const diff = t - Date.now();
+  if (diff <= 0) return "now";
+  const mins = Math.floor(diff / 60000);
+  const d = Math.floor(mins / 1440);
+  const h = Math.floor((mins % 1440) / 60);
+  const m = mins % 60;
+  if (d > 0) return `in ${d}d ${h}h`;
+  if (h > 0) return `in ${h}h ${m}m`;
+  return `in ${m}m`;
 };

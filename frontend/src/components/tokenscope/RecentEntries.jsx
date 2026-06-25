@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { fetchUsage, deleteUsage, TOOL_LABEL, formatNumber, formatCost } from "@/lib/tokenApi";
+import { useLang } from "@/lib/i18n";
 
 export default function RecentEntries({ days, refreshKey, onChanged }) {
+  const { t } = useLang();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -36,7 +38,7 @@ export default function RecentEntries({ days, refreshKey, onChanged }) {
           // recent_entries
         </div>
         <div className="font-mono text-[10px] uppercase tracking-[0.25em] text-zinc-500">
-          {loading ? "loading…" : `${items.length} shown`}
+          {loading ? t("recent.loading") : t("recent.shown", { n: items.length })}
         </div>
       </div>
       <div className="max-h-[420px] overflow-y-auto">
@@ -56,7 +58,7 @@ export default function RecentEntries({ days, refreshKey, onChanged }) {
             {items.length === 0 && !loading && (
               <tr>
                 <td colSpan={7} className="px-4 py-8 text-center text-zinc-600">
-                  no entries yet
+                  {t("recent.no_entries")}
                 </td>
               </tr>
             )}
@@ -84,7 +86,7 @@ export default function RecentEntries({ days, refreshKey, onChanged }) {
                       data-testid={`recent-delete-${idx}`}
                       onClick={() => remove(it.id)}
                       className="text-zinc-600 hover:text-[#FF3B30]"
-                      aria-label="delete"
+                      aria-label={t("recent.delete")}
                     >
                       <Trash2 className="h-3.5 w-3.5" strokeWidth={1.5} />
                     </button>

@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, Check } from "lucide-react";
 import { saveThreshold, formatNumber, formatCost } from "@/lib/tokenApi";
+import { useLang } from "@/lib/i18n";
 
 export default function ThresholdPanel({ threshold, summary, onSaved }) {
+  const { t } = useLang();
   const [tokens, setTokens] = useState(1_000_000);
   const [cost, setCost] = useState(10);
   const [saving, setSaving] = useState(false);
@@ -31,10 +33,10 @@ export default function ThresholdPanel({ threshold, summary, onSaved }) {
     setSaving(true);
     try {
       await saveThreshold({ id: "global", daily_tokens: Number(tokens), daily_cost_usd: Number(cost) });
-      toast.success("THRESHOLD UPDATED");
+      toast.success(t("threshold.toast_updated"));
       onSaved?.();
     } catch (e) {
-      toast.error("SAVE FAILED", { description: e.message });
+      toast.error(t("threshold.toast_save_failed"), { description: e.message });
     } finally {
       setSaving(false);
     }
@@ -75,11 +77,11 @@ export default function ThresholdPanel({ threshold, summary, onSaved }) {
             data-testid="threshold-breach-indicator"
             className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-[#FF3B30]"
           >
-            <AlertTriangle className="h-3 w-3" strokeWidth={2} /> breached
+            <AlertTriangle className="h-3 w-3" strokeWidth={2} /> {t("threshold.breached")}
           </div>
         ) : (
           <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">
-            <Check className="h-3 w-3" strokeWidth={2} /> nominal
+            <Check className="h-3 w-3" strokeWidth={2} /> {t("threshold.nominal")}
           </div>
         )}
       </div>
@@ -105,7 +107,7 @@ export default function ThresholdPanel({ threshold, summary, onSaved }) {
         <div className="grid grid-cols-2 gap-3 pt-2 border-t border-zinc-900">
           <label className="block">
             <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-1.5">
-              max tokens / day
+              {t("threshold.max_tokens_day")}
             </div>
             <input
               data-testid="threshold-tokens-input"
@@ -117,7 +119,7 @@ export default function ThresholdPanel({ threshold, summary, onSaved }) {
           </label>
           <label className="block">
             <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500 mb-1.5">
-              max usd / day
+              {t("threshold.max_usd_day")}
             </div>
             <input
               data-testid="threshold-cost-input"
@@ -135,7 +137,7 @@ export default function ThresholdPanel({ threshold, summary, onSaved }) {
           disabled={saving}
           className="w-full font-mono text-[11px] uppercase tracking-[0.25em] py-2.5 bg-white text-black hover:bg-zinc-200 disabled:opacity-50"
         >
-          {saving ? "saving…" : "save threshold"}
+          {saving ? t("threshold.saving") : t("threshold.save")}
         </button>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import { formatNumber, formatCost } from "@/lib/tokenApi";
+import { useLang } from "@/lib/i18n";
 import { ArrowDownToLine, ArrowUpFromLine, Coins, Database, AlertTriangle } from "lucide-react";
 
 function Stat({ label, value, sub, icon: Icon, testid, breached }) {
@@ -27,6 +28,7 @@ function Stat({ label, value, sub, icon: Icon, testid, breached }) {
 }
 
 export default function SummaryCards({ summary, threshold }) {
+  const { t } = useLang();
   const totals = summary?.totals || {
     input_tokens: 0,
     output_tokens: 0,
@@ -51,28 +53,31 @@ export default function SummaryCards({ summary, threshold }) {
         testid="stat-total-tokens"
         label="total_tokens"
         value={formatNumber(totals.total_tokens)}
-        sub={`${totals.entries} entries · selected range`}
+        sub={t("summary.entries_range", { n: totals.entries })}
         icon={Database}
       />
       <Stat
         testid="stat-input-tokens"
         label="input_tokens"
         value={formatNumber(totals.input_tokens)}
-        sub="prompt tokens"
+        sub={t("summary.prompt_tokens")}
         icon={ArrowDownToLine}
       />
       <Stat
         testid="stat-output-tokens"
         label="output_tokens"
         value={formatNumber(totals.output_tokens)}
-        sub="completion tokens"
+        sub={t("summary.completion_tokens")}
         icon={ArrowUpFromLine}
       />
       <Stat
         testid="stat-total-cost"
         label="total_cost_usd"
         value={formatCost(totals.cost_usd)}
-        sub={`today: ${formatCost(today.cost_usd)} / ${formatNumber(todayTokens)} tok`}
+        sub={t("summary.today_cost_tok", {
+          cost: formatCost(today.cost_usd),
+          tok: formatNumber(todayTokens),
+        })}
         icon={tokenBreached || costBreached ? AlertTriangle : Coins}
         breached={tokenBreached || costBreached}
       />

@@ -2,8 +2,10 @@ import { useRef, useState } from "react";
 import { Upload, FileJson, FileText, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { uploadFile, seedDemo } from "@/lib/tokenApi";
+import { useLang } from "@/lib/i18n";
 
 export default function UploadDropzone({ onImported }) {
+  const { t } = useLang();
   const inputRef = useRef(null);
   const [drag, setDrag] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -16,13 +18,13 @@ export default function UploadDropzone({ onImported }) {
       for (const f of files) {
         const res = await uploadFile(f);
         toast.success(
-          `IMPORTED ${f.name}`,
-          { description: `${res.inserted} inserted · ${res.skipped} skipped` }
+          t("upload.imported", { filename: f.name }),
+          { description: t("upload.imported_desc", { inserted: res.inserted, skipped: res.skipped }) }
         );
       }
       onImported?.();
     } catch (e) {
-      toast.error("IMPORT FAILED", {
+      toast.error(t("upload.import_failed"), {
         description: e?.response?.data?.detail || e.message,
       });
     } finally {
@@ -34,12 +36,12 @@ export default function UploadDropzone({ onImported }) {
     setSeedBusy(true);
     try {
       const res = await seedDemo();
-      toast.success("DEMO DATA LOADED", {
-        description: `${res.inserted} synthetic entries created`,
+      toast.success(t("upload.demo_loaded"), {
+        description: t("upload.demo_loaded_desc", { n: res.inserted }),
       });
       onImported?.();
     } catch (e) {
-      toast.error("SEED FAILED", { description: e.message });
+      toast.error(t("upload.seed_failed"), { description: e.message });
     } finally {
       setSeedBusy(false);
     }
@@ -61,7 +63,7 @@ export default function UploadDropzone({ onImported }) {
             disabled={seedBusy}
             className="font-mono text-[10px] uppercase tracking-[0.2em] px-3 py-1.5 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-900 disabled:opacity-50"
           >
-            {seedBusy ? "loading…" : "load demo data"}
+            {seedBusy ? t("upload.loading") : t("upload.load_demo")}
           </button>
         </div>
       </div>
@@ -101,10 +103,10 @@ export default function UploadDropzone({ onImported }) {
             )}
             <div>
               <div className="font-mono text-sm tracking-tight">
-                {busy ? "PARSING FILE…" : "DROP CSV / JSON HERE"}
+                {busy ? t("upload.parsing") : t("upload.drop_here")}
               </div>
               <div className="font-mono text-[11px] text-zinc-500 mt-1">
-                expected fields: tool, model, input_tokens, output_tokens, timestamp [, underlying_model, cost_usd]
+                {t("upload.expected_fields")} tool, model, input_tokens, output_tokens, timestamp [, underlying_model, cost_usd]
               </div>
             </div>
           </div>

@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { Minus, Square, ChevronRight } from "lucide-react";
 import { fetchLive, TOOL_LABEL, formatNumber, formatCost } from "@/lib/tokenApi";
+import { useLang } from "@/lib/i18n";
 
 /**
  * Floating "system tray" widget - bottom-right.
  * Shows the latest model in use, terminal-style.
  */
 export default function SystemTray({ summary, threshold }) {
+  const { t } = useLang();
   const [live, setLive] = useState(null);
   const [open, setOpen] = useState(true);
 
@@ -47,7 +49,7 @@ export default function SystemTray({ summary, threshold }) {
         className="fixed bottom-4 right-44 z-50 border border-zinc-800 bg-black px-3 py-2 font-mono text-[10px] uppercase tracking-[0.25em] text-zinc-400 hover:text-white hover:border-white"
       >
         <ChevronRight className="h-3 w-3 inline mr-1.5" strokeWidth={2} />
-        tray
+        {t("tray.label")}
       </button>
     );
   }
@@ -56,7 +58,7 @@ export default function SystemTray({ summary, threshold }) {
     ? live.underlying_model
       ? `${live.model} ▸ ${live.underlying_model}`
       : live.model
-    : "idle";
+    : t("tray.idle");
 
   const toolLabel = live ? TOOL_LABEL[live.tool] || live.tool : "—";
 
@@ -77,7 +79,7 @@ export default function SystemTray({ summary, threshold }) {
             }`}
           />
           <span className="font-mono text-[10px] uppercase tracking-[0.25em] text-zinc-400">
-            tray · live
+            {t("tray.title_live")}
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -85,7 +87,7 @@ export default function SystemTray({ summary, threshold }) {
             data-testid="system-tray-minimize"
             onClick={() => setOpen(false)}
             className="text-zinc-500 hover:text-white"
-            aria-label="minimize"
+            aria-label={t("tray.minimize")}
           >
             <Minus className="h-3 w-3" strokeWidth={2} />
           </button>
@@ -111,7 +113,7 @@ export default function SystemTray({ summary, threshold }) {
         </div>
         {live && (
           <div className="flex items-baseline justify-between gap-2">
-            <span className="text-zinc-500">last:</span>
+            <span className="text-zinc-500">{t("tray.last")}</span>
             <span className="text-zinc-300 tabular-nums">
               {formatNumber((live.input_tokens || 0) + (live.output_tokens || 0))} tok ·{" "}
               {formatCost(live.cost_usd)}

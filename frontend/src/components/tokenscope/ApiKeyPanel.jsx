@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Key, Check, AlertTriangle, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { fetchAuthStatus, getApiKey, setApiKey } from "@/lib/tokenApi";
+import { useLang } from "@/lib/i18n";
 
 /**
  * Compact API key panel.
@@ -9,6 +10,7 @@ import { fetchAuthStatus, getApiKey, setApiKey } from "@/lib/tokenApi";
  * - User stores key in localStorage; interceptor injects it on every request.
  */
 export default function ApiKeyPanel() {
+  const { t } = useLang();
   const [status, setStatus] = useState({ required: false, valid: true });
   const [keyInput, setKeyInput] = useState(getApiKey());
   const [show, setShow] = useState(false);
@@ -32,14 +34,14 @@ export default function ApiKeyPanel() {
     setApiKey(keyInput.trim());
     await refresh();
     setBusy(false);
-    toast.success("API KEY SAVED");
+    toast.success(t("apikey.toast_saved"));
   };
 
   const clear = async () => {
     setApiKey("");
     setKeyInput("");
     await refresh();
-    toast.success("API KEY CLEARED");
+    toast.success(t("apikey.toast_cleared"));
   };
 
   // When backend doesn't require a key, render a tiny "OPEN" tag.
@@ -50,7 +52,7 @@ export default function ApiKeyPanel() {
         className="border border-zinc-800 bg-[#0A0A0A] px-3 py-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.25em] text-zinc-500"
       >
         <Key className="h-3 w-3" strokeWidth={1.5} />
-        api: open · no key required
+        {t("apikey.open_no_key")}
       </div>
     );
   }
@@ -71,14 +73,14 @@ export default function ApiKeyPanel() {
             data-testid="api-key-status-ok"
             className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-400 flex items-center gap-1"
           >
-            <Check className="h-3 w-3" strokeWidth={2} /> authenticated
+            <Check className="h-3 w-3" strokeWidth={2} /> {t("apikey.authenticated")}
           </div>
         ) : (
           <div
             data-testid="api-key-status-missing"
             className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#FFCC00] flex items-center gap-1"
           >
-            <AlertTriangle className="h-3 w-3" strokeWidth={2} /> key required
+            <AlertTriangle className="h-3 w-3" strokeWidth={2} /> {t("apikey.key_required")}
           </div>
         )}
       </div>
@@ -89,7 +91,7 @@ export default function ApiKeyPanel() {
             type={show ? "text" : "password"}
             value={keyInput}
             onChange={(e) => setKeyInput(e.target.value)}
-            placeholder="paste X-API-Key…"
+            placeholder={t("apikey.placeholder")}
             className="w-full bg-black border border-zinc-800 px-2.5 py-2 pr-8 font-mono text-xs text-white focus:outline-none focus:border-white"
           />
           <button
@@ -97,7 +99,7 @@ export default function ApiKeyPanel() {
             data-testid="api-key-toggle-visibility"
             onClick={() => setShow((s) => !s)}
             className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
-            aria-label="toggle visibility"
+            aria-label={t("apikey.toggle_visibility")}
           >
             {show ? <EyeOff className="h-3.5 w-3.5" strokeWidth={1.5} /> : <Eye className="h-3.5 w-3.5" strokeWidth={1.5} />}
           </button>
@@ -108,14 +110,14 @@ export default function ApiKeyPanel() {
           disabled={busy || !keyInput.trim()}
           className="font-mono text-[10px] uppercase tracking-[0.2em] px-3 py-2 bg-white text-black hover:bg-zinc-200 disabled:opacity-40"
         >
-          save
+          {t("apikey.save")}
         </button>
         <button
           data-testid="api-key-clear-btn"
           onClick={clear}
           className="font-mono text-[10px] uppercase tracking-[0.2em] px-3 py-2 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-900"
         >
-          clear
+          {t("apikey.clear")}
         </button>
       </div>
     </div>

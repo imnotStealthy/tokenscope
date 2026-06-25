@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-0.5 -0.5 48.5 8" role="img" aria-label="Stealthy" shape-rendering="crispEdges">
+  <defs>
+    <g id="wm">
+      <!-- S -->
+      <rect x="0" y="0" width="5" height="1"/>
+      <rect x="0" y="1" width="1" height="2"/>
+      <rect x="0" y="3" width="5" height="1"/>
+      <rect x="4" y="4" width="1" height="2"/>
+      <rect x="0" y="6" width="5" height="1"/>
+      <!-- T -->
+      <rect x="6" y="0" width="5" height="1"/>
+      <rect x="8" y="1" width="1" height="6"/>
+      <!-- E -->
+      <rect x="12" y="0" width="1" height="7"/>
+      <rect x="13" y="0" width="4" height="1"/>
+      <rect x="13" y="3" width="3" height="1"/>
+      <rect x="13" y="6" width="4" height="1"/>
+      <!-- A -->
+      <rect x="18" y="1" width="1" height="6"/>
+      <rect x="22" y="1" width="1" height="6"/>
+      <rect x="19" y="0" width="3" height="1"/>
+      <rect x="19" y="3" width="3" height="1"/>
+      <!-- L -->
+      <rect x="24" y="0" width="1" height="7"/>
+      <rect x="25" y="6" width="4" height="1"/>
+      <!-- T -->
+      <rect x="30" y="0" width="5" height="1"/>
+      <rect x="32" y="1" width="1" height="6"/>
+      <!-- H -->
+      <rect x="36" y="0" width="1" height="7"/>
+      <rect x="40" y="0" width="1" height="7"/>
+      <rect x="37" y="3" width="3" height="1"/>
+      <!-- Y -->
+      <rect x="42" y="0" width="1" height="3"/>
+      <rect x="46" y="0" width="1" height="3"/>
+      <rect x="43" y="2" width="3" height="1"/>
+      <rect x="44" y="3" width="1" height="4"/>
+    </g>
+  </defs>
+  <use href="#wm" x="0.28" fill="#1fd8ff"/>
+  <use href="#wm" x="-0.22" fill="#ff2e6e" opacity="0.4"/>
+  <use href="#wm" fill="#ededed"/>
+</svg>

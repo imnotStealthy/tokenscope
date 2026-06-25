@@ -101,3 +101,94 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: >
+  Retrieve token usage per project and the subscription utilization rate (Claude by
+  subscription), reusing the approach from claude-rpc and codex-rpc. Antigravity (Google)
+  to be added later. The backend reads local files directly (~/.claude, ~/.codex).
+
+backend:
+  - task: "Local source reader (Claude + Codex) -> per-project token usage"
+    implemented: true
+    working: true
+    file: "backend/local_sources.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: >
+          Reads ~/.claude/projects/**/*.jsonl assistant message.usage (fresh input + cache
+          split, per-model cost) and ~/.codex/sessions/**/rollout-*.jsonl token_count
+          last_token_usage (uncached input, reasoning folded into output cost). Project =
+          cwd. Per-file mtime cache. Validated against real local data (27 projects) and 4
+          standalone unit tests (tests/test_local_sources.py) all passing.
+  - task: "Subscription utilization (Claude OAuth + Codex rate_limits)"
+    implemented: true
+    working: true
+    file: "backend/local_sources.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: >
+          Claude: GET api.anthropic.com/api/oauth/usage (token from ~/.claude/.credentials.json),
+          fallback ~/.claude-rpc/limits-cache.json -> 5h/All/Sonnet used_percent. Codex:
+          rate_limits.primary(5h)/secondary(weekly)/spark/credits + plan_type from auth.json
+          JWT. Verified live on this machine (Claude 5h 13%, Codex prolite 5h 18%/week 7%).
+          Secrets never logged/returned. Degrades to available=false when dirs absent.
+  - task: "Endpoints /api/local/{summary,utilization,status} + project dimension"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: >
+          Added project field to UsageEntry/Create, project alias parsing (repo/workspace/cwd),
+          by_project accumulator in get_summary, and three sync def local endpoints (run in
+          threadpool). server.py import + endpoints exercised via stubbed motor/bson.
+
+frontend:
+  - task: "Local/Stored source toggle + per-project + utilization UI"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/pages/Dashboard.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: >
+          Added UtilizationPanel (Claude 5h/All/Sonnet + Codex 5h/weekly/Spark/credits gauges
+          with reset countdown), ProjectTable (per-project tokens/cost/tools), Header source
+          toggle, tokenApi fetchLocalSummary/Utilization/Status + formatReset. esbuild syntax
+          check passes; not yet run in a browser (node_modules absent locally).
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 0
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Local/Stored source toggle + per-project + utilization UI"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+    -agent: "main"
+    -message: >
+      Built local-file pipeline (Claude + Codex) with per-project usage and subscription
+      utilization. Backend verified against real data + unit tests. Frontend needs a browser
+      smoke test (requires running backend locally + npm install). Antigravity/Google is the
+      next pass.

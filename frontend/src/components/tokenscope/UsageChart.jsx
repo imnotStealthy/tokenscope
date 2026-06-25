@@ -10,6 +10,7 @@ import {
   Legend,
 } from "recharts";
 import { TOOL_COLORS, TOOL_LABEL, formatNumber } from "@/lib/tokenApi";
+import { useLang } from "@/lib/i18n";
 
 const tickStyle = {
   fontFamily: "JetBrains Mono, monospace",
@@ -41,6 +42,7 @@ function CustomTooltip({ active, payload, label }) {
 }
 
 export default function UsageChart({ summary, threshold }) {
+  const { t } = useLang();
   const data = (summary?.by_day || []).map((d) => ({
     day: d.day?.slice(5) || "",
     claude_api: d.claude_api || 0,
@@ -58,7 +60,7 @@ export default function UsageChart({ summary, threshold }) {
           // tokens_over_time
         </div>
         <div className="font-mono text-[10px] uppercase tracking-[0.25em] text-zinc-500">
-          per tool · daily
+          {t("chart.per_tool_daily")}
         </div>
       </div>
       <div className="p-4 h-[320px]" data-testid="usage-chart">
@@ -82,7 +84,9 @@ export default function UsageChart({ summary, threshold }) {
                 stroke="#FF3B30"
                 strokeDasharray="4 4"
                 label={{
-                  value: `THRESHOLD ${formatNumber(threshold.daily_tokens)}`,
+                  value: t("chart.threshold", {
+                    value: formatNumber(threshold.daily_tokens),
+                  }),
                   fill: "#FF3B30",
                   fontSize: 10,
                   fontFamily: "JetBrains Mono, monospace",

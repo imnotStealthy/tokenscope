@@ -36,8 +36,7 @@
   daily threshold panel with progress bars & breach indicator, recent-entries table
   with delete actions, wipe-all button
 - Floating "system tray" widget (terminal style) – live model, tool, last entry,
-  today_tokens / today_cost vs threshold; minimize / reopen control (positioned to
-  not collide with the Emergent badge)
+  today_tokens / today_cost vs threshold; minimize / reopen control
 - Sonner toasts for import / save / wipe feedback
 - All interactive elements carry `data-testid`
 
