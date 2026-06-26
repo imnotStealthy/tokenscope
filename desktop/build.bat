@@ -15,7 +15,7 @@ echo [3/3] Building single-file exe...
 pyinstaller --noconfirm tokenscope-tray.spec || goto :err
 
 echo.
-echo  DONE  ->  dist\TokenScope.exe
+echo  DONE  -^>  dist\TokenScope.exe
 echo  Double-click it: a tray icon appears and the dashboard opens in your browser.
 goto :eof
 

@@ -99,6 +99,9 @@ def _setup(tmp):
     os.environ["TOKENSCOPE_CLAUDE_RPC_DIR"] = str(root / ".claude-rpc")
     os.environ["TOKENSCOPE_DIR"] = str(root / ".tokenscope")
     os.environ["TOKENSCOPE_CLAUDE_OAUTH"] = "0"  # offline: no live OAuth call in tests
+    # Isolate Antigravity too, so tests never read the host's real ~/.gemini data.
+    os.environ["TOKENSCOPE_GEMINI_DIR"] = str(root / ".gemini")
+    os.environ["TOKENSCOPE_ANTIGRAVITY_STATE"] = str(root / ".gemini" / "no-state.vscdb")
     os.environ.pop("ANTHROPIC_API_KEY", None)
     os.environ.pop("ANTHROPIC_BASE_URL", None)
     ls._FILE_CACHE.clear()
@@ -107,7 +110,8 @@ def _setup(tmp):
 
 def _teardown():
     for k in ("TOKENSCOPE_CLAUDE_DIR", "TOKENSCOPE_CODEX_DIR", "TOKENSCOPE_CLAUDE_RPC_DIR",
-              "TOKENSCOPE_DIR", "TOKENSCOPE_CLAUDE_OAUTH", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"):
+              "TOKENSCOPE_DIR", "TOKENSCOPE_CLAUDE_OAUTH", "TOKENSCOPE_GEMINI_DIR",
+              "TOKENSCOPE_ANTIGRAVITY_STATE", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"):
         os.environ.pop(k, None)
     ls._FILE_CACHE.clear()
     ls._UTIL_CACHE["data"] = None
@@ -203,6 +207,8 @@ def test_missing_dirs_degrade_gracefully():
         os.environ["TOKENSCOPE_CODEX_DIR"] = str(Path(tmp) / "nope-codex")
         os.environ["TOKENSCOPE_CLAUDE_RPC_DIR"] = str(Path(tmp) / "nope-rpc")
         os.environ["TOKENSCOPE_DIR"] = str(Path(tmp) / "nope-ts")
+        os.environ["TOKENSCOPE_GEMINI_DIR"] = str(Path(tmp) / "nope-gemini")
+        os.environ["TOKENSCOPE_ANTIGRAVITY_STATE"] = str(Path(tmp) / "nope-state.vscdb")
         ls._FILE_CACHE.clear()
         ls._UTIL_CACHE["data"] = None
         try:
@@ -212,9 +218,93 @@ def test_missing_dirs_degrade_gracefully():
             st = ls.read_local_status()
             assert st["claude"]["available"] is False
             assert st["codex"]["available"] is False
+            assert st["antigravity"]["available"] is False
             u = ls.read_local_utilization()
             assert u["claude"]["available"] is False
             assert u["codex"]["available"] is False
+            assert "antigravity" not in u  # no subscription/quota panel for antigravity
+        finally:
+            _teardown()
+
+
+# ---- Antigravity: protobuf wire encoder for synthetic fixtures ----
+def _pv(n):  # varint
+    out = bytearray()
+    while True:
+        b = n & 0x7f
+        n >>= 7
+        out.append(b | (0x80 if n else 0))
+        if not n:
+            return bytes(out)
+
+
+def _pld(num, data):  # length-delimited field (msg/string/bytes)
+    return _pv((num << 3) | 2) + _pv(len(data)) + data
+
+
+def _pvf(num, val):  # varint field
+    return _pv((num << 3) | 0) + _pv(val)
+
+
+def _ag_gen_blob(inp, out, model, ts):
+    f4 = _pvf(2, inp) + _pvf(3, out)                 # f1.4.{2=in,3=out}
+    f9 = _pld(4, _pvf(1, ts))                        # f1.9.4.1 = ts secs
+    f1 = _pld(4, f4) + _pld(21, model.encode()) + _pld(9, f9)
+    return _pld(1, f1)
+
+
+def _write_ag_db(path, workspace, gens):
+    import sqlite3
+    con = sqlite3.connect(str(path))
+    con.execute("CREATE TABLE trajectory_metadata_blob(id TEXT, data BLOB)")
+    con.execute("CREATE TABLE gen_metadata(idx INTEGER, data BLOB, size INTEGER)")
+    con.execute("INSERT INTO trajectory_metadata_blob VALUES(?,?)",
+                ("main", _pld(1, ("file://" + workspace).encode())))
+    for i, (inp, out, model, ts) in enumerate(gens):
+        blob = _ag_gen_blob(inp, out, model, ts)
+        con.execute("INSERT INTO gen_metadata VALUES(?,?,?)", (i, blob, len(blob)))
+    con.commit()
+    con.close()
+
+
+def test_antigravity_gen_decode_and_pricing():
+    ts = int(time.time()) - 600
+    blob = _ag_gen_blob(29027, 191, "Gemini 3.5 Flash (Medium)", ts)
+    inp, out, model, got_ts = ls._ag_parse_gen(blob)
+    assert (inp, out, model, got_ts) == (29027, 191, "Gemini 3.5 Flash (Medium)", ts)
+    # family-based pricing vs Google/Anthropic list rates (per 1M tokens)
+    assert ls.antigravity_pricing("Gemini 3.5 Flash (Medium)")[1:] == (1.50, 9.00)
+    assert ls.antigravity_pricing("Gemini 3.1 Flash Lite")[1:] == (0.25, 1.50)
+    assert ls.antigravity_pricing("Gemini 3.1 Pro (High)")[1:] == (2.0, 12.0)
+    assert ls.antigravity_pricing("Claude Sonnet 4.6 (Thinking)")[1:] == (3.0, 15.0)
+    assert ls.antigravity_pricing("Claude Opus 4.6 (Thinking)")[1:] == (5.0, 25.0)
+    assert ls.antigravity_pricing("GPT-OSS 120B")[1:] == (0.15, 0.60)
+
+
+def test_antigravity_db_events():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        conv = root / ".gemini" / "antigravity" / "conversations"
+        conv.mkdir(parents=True)
+        ts = int(time.time()) - 600
+        _write_ag_db(conv / "c1.db", "/d:/Users/me/agproj",
+                     [(1000, 200, "Gemini 3 Flash", ts), (500, 50, "Claude Opus 4.6 (Thinking)", ts)])
+        os.environ["TOKENSCOPE_GEMINI_DIR"] = str(root / ".gemini")
+        os.environ["TOKENSCOPE_ANTIGRAVITY_STATE"] = str(root / "no-state.vscdb")
+        ls._FILE_CACHE.clear()
+        ls._UTIL_CACHE["data"] = None
+        try:
+            ev = ls.read_antigravity_events(30)
+            assert len(ev) == 2, ev
+            assert all(e["tool"] == "antigravity" for e in ev)
+            assert {e["project_name"] for e in ev} == {"agproj"}
+            s = ls.read_local_summary(days=30, tool="antigravity")
+            assert s["totals"]["input_tokens"] == 1500
+            assert s["totals"]["output_tokens"] == 250
+            assert s["totals"]["entries"] == 2
+            assert s["totals"]["cost_usd"] > 0
+            st = ls.read_local_status()
+            assert st["antigravity"]["available"] is True
         finally:
             _teardown()
 
