@@ -7,7 +7,9 @@ window only if pywebview is unavailable.
 import threading
 import time
 
-from server import serve_background
+from server import get_theme, serve_background
+
+_INSTANCE_MUTEX = None
 
 
 def _icon_image():
@@ -16,25 +18,49 @@ def _icon_image():
     return make_icon(64)
 
 
-def _apply_dark_titlebar(window):
-    """Paint the native Windows caption pure black (OLED) via DWM, so the title
-    bar matches the app instead of the default grey. Win 10 20H1+/Win 11 only;
-    silently no-ops elsewhere."""
+def _acquire_single_instance():
+    """Return False when another TokenScope process already owns the app mutex."""
+    global _INSTANCE_MUTEX
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CreateMutexW.restype = wintypes.HANDLE
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        handle = kernel32.CreateMutexW(None, False, "Local\\TokenScopeDesktopSingleInstance")
+        if not handle:
+            return True
+        if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            kernel32.CloseHandle(handle)
+            return False
+        _INSTANCE_MUTEX = handle
+    except Exception:
+        pass
+    return True
+
+
+def _window_hwnd(window):
     import ctypes
 
-    hwnd = 0
     try:
         native = window.native              # WinForms Form on Windows
         h = getattr(native, "Handle", None)
         if h is not None:
-            hwnd = int(h.ToInt64()) if hasattr(h, "ToInt64") else int(h)
+            return int(h.ToInt64()) if hasattr(h, "ToInt64") else int(h)
     except Exception:
-        hwnd = 0
-    if not hwnd:
-        try:
-            hwnd = ctypes.windll.user32.FindWindowW(None, "TokenScope")
-        except Exception:
-            hwnd = 0
+        pass
+    try:
+        return ctypes.windll.user32.FindWindowW(None, "TokenScope")
+    except Exception:
+        return 0
+
+
+def _apply_titlebar_theme(hwnd, theme="dark"):
+    """Paint the native Windows caption via DWM so it matches the dashboard theme.
+    Win 10 20H1+/Win 11 only; silently no-ops elsewhere."""
+    import ctypes
+
     if not hwnd:
         return
     try:
@@ -48,12 +74,14 @@ def _apply_dark_titlebar(window):
             ctypes.c_void_p(hwnd), ctypes.c_uint(attr),
             ctypes.byref(val), ctypes.sizeof(val))
 
-    for attr, value in (
-        (20, 1),           # DWMWA_USE_IMMERSIVE_DARK_MODE -> dark caption
-        (35, 0x00000000),  # DWMWA_CAPTION_COLOR -> pure black (0x00BBGGRR)
-        (34, 0x00000000),  # DWMWA_BORDER_COLOR  -> black border
-        (36, 0x00FFFFFF),  # DWMWA_TEXT_COLOR    -> white title text
-    ):
+    is_light = theme == "light"
+    values = (
+        (20, 0 if is_light else 1),                  # DWMWA_USE_IMMERSIVE_DARK_MODE
+        (35, 0x00FFFFFF if is_light else 0x00000000),  # DWMWA_CAPTION_COLOR (0x00BBGGRR)
+        (34, 0x00FFFFFF if is_light else 0x00000000),  # DWMWA_BORDER_COLOR
+        (36, 0x000B0909 if is_light else 0x00FFFFFF),  # DWMWA_TEXT_COLOR
+    )
+    for attr, value in values:
         try:
             _set(attr, value)
         except Exception:
@@ -79,6 +107,17 @@ def _title_loop(icon):
         time.sleep(60)
 
 
+def _theme_loop(hwnd_state):
+    last = None
+    while True:
+        hwnd = hwnd_state.get("hwnd")
+        theme = get_theme()
+        if hwnd and theme != last:
+            _apply_titlebar_theme(hwnd, theme)
+            last = theme
+        time.sleep(0.5)
+
+
 def _browser_fallback(httpd, url):
     import webbrowser
 
@@ -90,6 +129,9 @@ def _browser_fallback(httpd, url):
 
 
 def run():
+    if not _acquire_single_instance():
+        return
+
     httpd, port = serve_background()
     url = f"http://127.0.0.1:{port}/"
 
@@ -117,6 +159,7 @@ def run():
     )
 
     state = {"quit": False}
+    hwnd_state = {"hwnd": 0}
     icon = None
     try:
         import pystray
@@ -165,7 +208,13 @@ def run():
         pass
 
     try:
-        window.events.shown += lambda *a: _apply_dark_titlebar(window)
+        def apply_window_theme(*args):
+            hwnd_state["hwnd"] = _window_hwnd(window)
+            _apply_titlebar_theme(hwnd_state["hwnd"], get_theme())
+
+        window.events.before_show += apply_window_theme
+        window.events.shown += apply_window_theme
+        threading.Thread(target=_theme_loop, args=(hwnd_state,), daemon=True).start()
     except Exception:
         pass
 

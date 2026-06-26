@@ -82,7 +82,8 @@ def claude_pricing(model_id: str) -> Tuple[str, float, float]:
         return ("Sonnet", 3.0, 15.0)
     if "opus" in b:
         # Only the deprecated Opus 4 (bare) and Opus 4.1 are $15/$75; 4.5+ are $5/$25.
-        m = re.search(r"opus-4(?:-(\d+))?", b)
+        # Accept API ids (opus-4-1) and Antigravity display names (Opus 4.6).
+        m = re.search(r"opus[ \-]?4(?:[.\-](\d+))?", b)
         if m and m.group(1) in (None, "1"):
             return ("Opus 4.1", 15.0, 75.0)
         return ("Opus", 5.0, 25.0)
@@ -482,6 +483,8 @@ def read_local_summary(days: int = 30, tool: Optional[str] = None) -> dict:
         events += read_claude_events(days)
     if tool in (None, "codex"):
         events += read_codex_events(days)
+    if tool in (None, "antigravity"):
+        events += read_antigravity_events(days)
     return aggregate(events, days, tool)
 
 
@@ -848,6 +851,208 @@ def read_codex_utilization() -> dict:
     return result
 
 
+# ===== Antigravity (Google) — local token usage =====
+# Tokens: ~/.gemini/antigravity/conversations/*.db (SQLite "trajectory" DBs). Each
+#   gen_metadata row is a protobuf blob for one model generation:
+#     input = f1.4.2, output = f1.4.3, model name = f1.21 (fallback f1.19/f1.20),
+#     timestamp = f1.9.4 (unix seconds). Project/workspace = trajectory_metadata_blob.
+# Read-only; the encrypted *.pb conversation files are skipped. (No subscription /
+#   live-quota panel: the cloudcode-pa quota fetch was unreliable and was removed;
+#   antigravity_state_db() is still used by read_local_status for availability only.)
+def gemini_dir() -> Path:
+    return Path(os.environ.get("TOKENSCOPE_GEMINI_DIR") or (_home() / ".gemini"))
+
+
+def antigravity_conv_dir() -> Path:
+    return gemini_dir() / "antigravity" / "conversations"
+
+
+def _appdata_dir() -> Path:
+    return Path(os.environ.get("APPDATA") or (_home() / "AppData" / "Roaming"))
+
+
+def antigravity_state_db() -> Path:
+    return Path(os.environ.get("TOKENSCOPE_ANTIGRAVITY_STATE")
+                or (_appdata_dir() / "Antigravity" / "User" / "globalStorage" / "state.vscdb"))
+
+
+def antigravity_pricing(model_id: str) -> Tuple[str, float, float]:
+    """Estimate (family, in_rate, out_rate) per 1M tokens for an Antigravity model.
+    Subscription usage carries no per-token bill; these public list rates are a cost ESTIMATE."""
+    b = (model_id or "").lower()
+    if "claude" in b:
+        return claude_pricing(model_id)
+    if "gpt" in b or "oss" in b:
+        return ("GPT-OSS", 0.15, 0.60)
+    # Gemini public list rates per 1M tokens (Pro = the <=200K-token tier).
+    if "flash" in b:
+        if "lite" in b:
+            return ("Gemini Flash Lite", 0.25, 1.50)   # Gemini 3.1 Flash Lite
+        if "3.5" in b or "3-5" in b:
+            return ("Gemini Flash", 1.50, 9.00)         # Gemini 3.5 Flash
+        return ("Gemini Flash", 0.50, 3.00)             # Gemini 3 Flash (preview)
+    if "pro" in b:
+        return ("Gemini Pro", 2.0, 12.0)                # Gemini 3.x Pro (<=200K)
+    return ("Gemini", 0.50, 3.00)
+
+
+# --- tolerant protobuf wire reader (no .proto schema) ---
+def _pb_rv(b, i):
+    shift = 0; result = 0
+    while True:
+        x = b[i]; i += 1
+        result |= (x & 0x7f) << shift
+        if not x & 0x80:
+            return result, i
+        shift += 7
+
+
+def _pb_fields(b) -> List[tuple]:
+    out: List[tuple] = []; i = 0; n = len(b)
+    try:
+        while i < n:
+            tag, i = _pb_rv(b, i)
+            f = tag >> 3; wt = tag & 7
+            if f == 0:
+                break
+            if wt == 0:
+                v, i = _pb_rv(b, i); out.append((f, 0, v))
+            elif wt == 2:
+                ln, i = _pb_rv(b, i); out.append((f, 2, b[i:i + ln])); i += ln
+            elif wt == 5:
+                out.append((f, 5, b[i:i + 4])); i += 4
+            elif wt == 1:
+                out.append((f, 1, b[i:i + 8])); i += 8
+            else:
+                break
+    except (IndexError, ValueError):
+        pass
+    return out
+
+
+def _pb_msg(fields, num):
+    for f, w, v in fields:
+        if f == num and w == 2:
+            return _pb_fields(v)
+    return None
+
+
+def _pb_str(fields, num):
+    for f, w, v in fields:
+        if f == num and w == 2:
+            try:
+                s = v.decode("utf-8")
+                return s if s.isprintable() else None
+            except UnicodeDecodeError:
+                return None
+    return None
+
+
+def _pb_varint(fields, num):
+    for f, w, v in fields:
+        if f == num and w == 0:
+            return v
+    return None
+
+
+def _ag_parse_gen(blob) -> Optional[Tuple[int, int, str, Optional[int]]]:
+    """(input, output, model, ts_secs) from one gen_metadata protobuf blob, or None."""
+    f1 = _pb_msg(_pb_fields(blob), 1)
+    if not f1:
+        return None
+    inp = out = 0
+    f4 = _pb_msg(f1, 4)
+    if f4:
+        inp = _pb_varint(f4, 2) or 0
+        out = _pb_varint(f4, 3) or 0
+    if inp == 0 and out == 0:
+        return None
+    model = _pb_str(f1, 21) or _pb_str(f1, 19)
+    if not model:
+        f20 = _pb_msg(f1, 20)
+        if f20:
+            model = _pb_str(f20, 2)
+    ts = None
+    f9 = _pb_msg(f1, 9)
+    if f9:
+        f9_4 = _pb_msg(f9, 4)
+        if f9_4:
+            for f, w, v in f9_4:
+                if w == 0 and 1_600_000_000 < v < 2_000_000_000:
+                    ts = v
+                    break
+    return (_safe_int(inp), _safe_int(out), model or "Gemini", ts)
+
+
+_AG_FILE_RE = re.compile(rb"file://[^\x00-\x1f\"']{3,400}")
+
+
+def _ag_workspace(blob: bytes) -> Optional[str]:
+    m = _AG_FILE_RE.search(blob or b"")
+    if not m:
+        return None
+    try:
+        from urllib.parse import unquote
+        uri = unquote(m.group(0).decode("utf-8", "replace"))
+    except Exception:
+        return None
+    return re.sub(r"^file:/+", "", uri)  # file:///d:/path -> d:/path
+
+
+def _parse_antigravity_db(path: str, _unused=None) -> List[dict]:
+    import sqlite3
+    try:
+        mtime_fallback = os.path.getmtime(path)
+    except OSError:
+        mtime_fallback = None
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True)
+    except sqlite3.Error:
+        return []
+    events: List[dict] = []
+    try:
+        cur = con.cursor()
+        cwd = None
+        try:
+            row = cur.execute("SELECT data FROM trajectory_metadata_blob LIMIT 1").fetchone()
+            if row and row[0]:
+                cwd = _ag_workspace(row[0])
+        except sqlite3.Error:
+            pass
+        try:
+            rows = cur.execute("SELECT data FROM gen_metadata").fetchall()
+        except sqlite3.Error:
+            rows = []
+        for (blob,) in rows:
+            if not blob:
+                continue
+            g = _ag_parse_gen(blob)
+            if not g:
+                continue
+            inp, out, model, ts_secs = g
+            ts = None
+            for cand in (ts_secs, mtime_fallback):
+                if cand:
+                    try:
+                        ts = datetime.fromtimestamp(cand, tz=timezone.utc)
+                        break
+                    except (ValueError, OSError, OverflowError):
+                        ts = None
+            _lbl, in_rate, out_rate = antigravity_pricing(model)
+            cost = inp / 1e6 * in_rate + out / 1e6 * out_rate
+            events.append(_make_event("antigravity", model, cwd, ts, inp, out, 0, 0, cost))
+    except sqlite3.Error:
+        pass
+    finally:
+        con.close()
+    return events
+
+
+def read_antigravity_events(days: int) -> List[dict]:
+    cutoff_ts = time.time() - days * 86400 - _MTIME_MARGIN_S
+    return _collect_events(antigravity_conv_dir(), "*.db", _parse_antigravity_db, cutoff_ts)
+
+
 # Throttle the utilization compute (the Claude OAuth call is rate-limited): the dashboard
 # can poll often for tokens while OAuth is hit at most once per UTIL_TTL_S.
 UTIL_TTL_S = 60
@@ -882,5 +1087,10 @@ def read_local_status() -> dict:
             "available": (xdir / "sessions").exists(),
             "dir": "~/.codex",
             "has_auth": (xdir / "auth.json").exists(),
+        },
+        "antigravity": {
+            "available": antigravity_conv_dir().exists(),
+            "dir": "~/.gemini/antigravity",
+            "has_state": antigravity_state_db().exists(),
         },
     }

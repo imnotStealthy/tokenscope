@@ -142,6 +142,7 @@ INDEX_HTML = r"""<!doctype html>
         <button data-t="" class="active">all</button>
         <button data-t="claude_api">claude</button>
         <button data-t="codex">codex</button>
+        <button data-t="antigravity">antigravity</button>
       </div>
       <div class="seg" id="range">
         <button data-d="1">24h</button>
@@ -163,7 +164,7 @@ INDEX_HTML = r"""<!doctype html>
 </header>
 
 <div class="wrap">
-  <section>
+  <section id="util-section">
     <div class="lbl" style="margin-bottom:10px">// subscription_utilization</div>
     <div class="grid g2" id="util-grid">
       <div class="card" id="cl-card" data-key="util-claude"><div class="head"><span class="lbl"><span data-i18n="claude_sub">claude · subscription</span></span><span class="lbl" id="cl-src">—</span></div><div class="body" id="cl-body"></div></div>
@@ -295,7 +296,8 @@ const t=(k,v={})=>(I18N[LANG][k]??I18N.en[k]??k).replace(/\{(\w+)\}/g,(_,n)=>v[n
 function applyStatic(){document.querySelectorAll("[data-i18n]").forEach(el=>{el.textContent=t(el.dataset.i18n);});}
 function setStatus(){document.getElementById("status").textContent=t("live")+" · "+new Date().toISOString().slice(11,19)+" UTC";}
 let THEME=localStorage.getItem("tokenscope.theme")==="light"?"light":"dark";
-function applyTheme(){if(THEME==="light")document.documentElement.setAttribute("data-theme","light");else document.documentElement.removeAttribute("data-theme");}
+function syncWindowTheme(){fetch("/api/theme?theme="+encodeURIComponent(THEME),{cache:"no-store"}).catch(()=>{});}
+function applyTheme(){if(THEME==="light")document.documentElement.setAttribute("data-theme","light");else document.documentElement.removeAttribute("data-theme");syncWindowTheme();}
 
 function fmtN(n){if(n==null)return"—";n=Number(n);if(isNaN(n))return"—";
   if(n>=1e9)return(n/1e9).toFixed(2)+"B";if(n>=1e6)return(n/1e6).toFixed(2)+"M";
@@ -307,6 +309,28 @@ function fmtReset(iso){if(!iso)return"";const tt=new Date(iso).getTime();if(isNa
   if(dd>0)return P+" "+dd+t("u_d")+" "+h+t("u_h");
   if(h>0)return P+" "+h+t("u_h")+" "+mm+t("u_m");return P+" "+mm+t("u_m");}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+// Raw API model ids -> friendly display names. e.g. claude-opus-4-8 -> "Claude Opus 4.8",
+// gpt-5.3-codex -> "GPT 5.3 Codex", claude-haiku-4-5-20251001 -> "Claude Haiku 4.5".
+// Already-friendly names (Antigravity's "Gemini 3.5 Flash (Medium)") pass through.
+const MDL_VENDOR={claude:"Claude",gpt:"GPT",gemini:"Gemini"};
+const MDL_WORD={opus:"Opus",sonnet:"Sonnet",haiku:"Haiku",fable:"Fable",mythos:"Mythos",
+  codex:"Codex",flash:"Flash",pro:"Pro",lite:"Lite",mini:"Mini",nano:"Nano",oss:"OSS",turbo:"Turbo"};
+function prettyModel(id){
+  if(!id) return id;
+  if(/[A-Z\s()]/.test(id)) return id;                 // already a display name
+  const parts=id.toLowerCase().split("-");
+  if(parts.length>1 && /^\d{8}$/.test(parts[parts.length-1])) parts.pop();  // drop yyyymmdd snapshot
+  const out=[];
+  for(let i=0;i<parts.length;i++){
+    let p=parts[i];
+    if(/^[\d.]+$/.test(p)){                            // merge consecutive numeric tokens: 4 + 8 -> 4.8
+      while(i+1<parts.length && /^[\d.]+$/.test(parts[i+1])) p+="."+parts[++i];
+      out.push(p);
+    } else if(i===0 && MDL_VENDOR[p]) out.push(MDL_VENDOR[p]);
+    else out.push(MDL_WORD[p]||(p.charAt(0).toUpperCase()+p.slice(1)));
+  }
+  return out.join(" ");
+}
 
 function bar(label,pct,reset){pct=Math.max(0,Math.min(100,Number(pct)||0));
   const cls=pct>=90?"bad":pct>=75?"warn":"";
@@ -325,10 +349,14 @@ function barRemain(label,usedPct,reset){
 
 function renderUtil(u){
   const cl=u&&u.claude, cx=u&&u.codex;
+  // Antigravity has no usable subscription/quota card; only Claude & Codex remain.
   const showCl=!TOOL||TOOL==="claude_api", showCx=!TOOL||TOOL==="codex";
   document.getElementById("cl-card").style.display=showCl?"":"none";
   document.getElementById("cx-card").style.display=showCx?"":"none";
-  document.getElementById("util-grid").style.gridTemplateColumns=(showCl&&showCx)?"":"1fr";
+  const _nUtil=[showCl,showCx].filter(Boolean).length;
+  // Hide the whole section when no card applies (e.g. the Antigravity tab).
+  document.getElementById("util-section").style.display=_nUtil?"":"none";
+  document.getElementById("util-grid").style.gridTemplateColumns=_nUtil<=1?"1fr":"";
   const clMode=cl&&cl.mode;
   document.getElementById("cl-src").textContent =
     clMode==="subscription" ? t("subscription_word")+" · "+(cl.plan||"")
@@ -378,7 +406,7 @@ function renderSummary(s){
   const md=(s&&s.by_model)||[];
   document.getElementById("mdl-n").textContent=t("models",{n:md.length});
   document.getElementById("mdl-rows").innerHTML=md.length?md.map(r=>`<tr>
-    <td class="l muted">${esc(TOOL_LABEL[r.tool]||r.tool)}</td><td class="l w">${esc(r.model)}</td>
+    <td class="l muted">${esc(TOOL_LABEL[r.tool]||r.tool)}</td><td class="l w" title="${esc(r.model)}">${esc(prettyModel(r.model))}</td>
     <td class="muted">${fmtN(r.input_tokens)}</td><td class="muted">${fmtN(r.output_tokens)}</td>
     <td class="w">${fmtN((r.input_tokens||0)+(r.output_tokens||0))}</td>
     <td class="muted">${r.entries}</td><td class="w">${fmtC(r.cost_usd)}</td></tr>`).join("")

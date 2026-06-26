@@ -24,7 +24,48 @@ import local_sources as ls  # noqa: E402
 from web import INDEX_HTML  # noqa: E402
 
 PREFERRED_PORT = 8765
-_VALID_TOOLS = ("claude_api", "codex")
+_VALID_TOOLS = ("claude_api", "codex", "antigravity")
+_STATE_DIR = os.path.join(os.getenv("LOCALAPPDATA") or _HERE, "TokenScope")
+_THEME_FILE = os.path.join(_STATE_DIR, "theme.json")
+_THEME_LOCK = threading.Lock()
+
+
+def _load_theme():
+    try:
+        with open(_THEME_FILE, "r", encoding="utf-8") as f:
+            theme = json.load(f).get("theme")
+            if theme in ("dark", "light"):
+                return theme
+    except Exception:
+        pass
+    return "dark"
+
+
+def _save_theme(theme):
+    try:
+        os.makedirs(_STATE_DIR, exist_ok=True)
+        with open(_THEME_FILE, "w", encoding="utf-8") as f:
+            json.dump({"theme": theme}, f)
+    except Exception:
+        pass
+
+
+_THEME = _load_theme()
+
+
+def set_theme(theme):
+    global _THEME
+    if theme not in ("dark", "light"):
+        return _THEME
+    with _THEME_LOCK:
+        _THEME = theme
+        _save_theme(theme)
+        return _THEME
+
+
+def get_theme():
+    with _THEME_LOCK:
+        return _THEME
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -68,6 +109,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(ls.read_local_summary(days=days, tool=tool))
             elif path == "/api/local/utilization":
                 self._json(ls.read_local_utilization())
+            elif path == "/api/theme":
+                self._json({"theme": set_theme(q.get("theme", ["dark"])[0])})
             else:
                 self._send(404, "not found", "text/plain; charset=utf-8")
         except Exception as e:  # never take the server down on one bad request
