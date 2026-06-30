@@ -610,6 +610,12 @@ def _detect_claude_account() -> Tuple[str, Optional[str]]:
     """
     if _read_claude_oauth_token():
         return ("subscription", _read_claude_subscription_type() or "subscription")
+    # Token present but expired -> still a subscriber. Stay in 'subscription' mode so the
+    # cache fallback keeps the panel populated instead of falsely showing "not signed in"
+    # until Claude Code refreshes the token. (TokenScope reads the token, never refreshes it.)
+    sub = _read_claude_subscription_type()
+    if sub:
+        return ("subscription", sub)
 
     base = (os.environ.get("ANTHROPIC_BASE_URL") or "").lower()
     has_key = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
@@ -758,7 +764,14 @@ def _read_codex_plan() -> Tuple[Optional[str], Optional[str]]:
 
 
 def read_codex_utilization() -> dict:
-    """Scan the newest rollouts (<=24h) for the latest non-null rate_limits."""
+    """Scan the newest rollouts (<=30d) for the latest non-null rate_limits.
+
+    _apply_codex_rollover zeroes any window whose reset has passed, so a limit that hasn't
+    been touched in a while still renders as 100% left instead of vanishing. The 24h window
+    blanked the panel whenever Codex wasn't used in the last day, and never surfaced the
+    GPT-5.3-Codex-Spark limits, which are logged only when Spark is actually used. 30 days
+    is past both quota windows (5h / weekly), so any displayed number is either live or a
+    correct 100%-left after rollover; the early-stop keeps the scan to a handful of files."""
     root = codex_dir() / "sessions"
     auth_mode, plan = _read_codex_plan()
     result = {
@@ -772,7 +785,7 @@ def read_codex_utilization() -> dict:
     }
     if not root.exists():
         return result
-    cutoff = time.time() - 86400
+    cutoff = time.time() - 30 * 86400
     files = []
     for fp in glob.iglob(str(root / "**/rollout-*.jsonl"), recursive=True):
         try:

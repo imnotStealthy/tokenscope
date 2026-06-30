@@ -374,14 +374,17 @@ function renderUtil(u){
   }
   document.getElementById("cx-src").textContent=cx&&cx.plan_type?cx.plan_type:((cx&&cx.auth_mode)||t("na"));
   const cxb=document.getElementById("cx-body");
-  if(cx&&cx.available){let h="";
-    if(cx.primary)h+=barRemain("5h",cx.primary.used_percent,cx.primary.reset);
-    if(cx.secondary)h+=barRemain("weekly",cx.secondary.used_percent,cx.secondary.reset);
-    if(cx.spark_primary)h+=barRemain("spark 5h",cx.spark_primary.used_percent,cx.spark_primary.reset);
-    if(cx.spark_secondary)h+=barRemain("spark weekly",cx.spark_secondary.used_percent,cx.spark_secondary.reset);
-    if(cx.credits!=null)h+=`<div class="barhd" style="padding-top:4px;border-top:1px solid #161618"><span>credits</span><span class="w p">${esc(cx.credits)}</span></div>`;
-    cxb.innerHTML=h||`<div class="muted">${esc(t("cx_norate"))}</div>`;}
-  else{cxb.innerHTML=`<div class="muted">${esc(t("cx_none"))}</div>`;}
+  // Always show the limit bars (like the official ChatGPT usage page). When a window has
+  // no observed data yet, default to 100% left (0% used) instead of hiding the bar.
+  const cxRow=(label,lim)=>lim?barRemain(label,lim.used_percent,lim.reset):barRemain(label,0,null);
+  let h="";
+  h+=cxRow("5h",cx&&cx.primary);
+  h+=cxRow("weekly",cx&&cx.secondary);
+  h+=`<div class="barhd" style="padding-top:4px;border-top:1px solid #161618"><span>${esc((cx&&cx.spark_label)||"GPT-5.3-Codex-Spark")}</span></div>`;
+  h+=cxRow("5h",cx&&cx.spark_primary);
+  h+=cxRow("weekly",cx&&cx.spark_secondary);
+  if(cx&&cx.credits!=null)h+=`<div class="barhd" style="padding-top:4px;border-top:1px solid #161618"><span>credits</span><span class="w p">${esc(cx.credits)}</span></div>`;
+  cxb.innerHTML=h;
 }
 
 function renderSummary(s){
@@ -512,6 +515,143 @@ setInterval(()=>{                          // tick clock + reset countdowns ever
   if(!LOADING) setStatus();
   if(LAST_U) renderUtil(LAST_U);
 }, 1000);
+</script>
+</body>
+</html>
+"""
+
+
+# ===== Tray popup (frameless pywebview window opened from the system-tray icon) =====
+TRAY_HTML = r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TokenScope Menu</title>
+<style>
+  :root{
+    --bg:#0A0A0A;--surface:#0A0A0A;--border:#27272A;--tx:#fff;--tx2:#A1A1AA;--tx3:#52525B;
+    --red:#FF3B30;--yellow:#FFCC00;--green:#22c55e;--track:#1c1c1f;--fill:#fff;
+    --hover:rgba(255,255,255,.06);--line:#1a1a1c;
+    --mono:'JetBrains Mono','IBM Plex Mono',ui-monospace,Consolas,monospace;
+  }
+  html[data-theme="light"]{
+    --bg:#fff;--surface:#fff;--border:#E4E4E7;--tx:#09090B;--tx2:#52525B;--tx3:#A1A1AA;
+    --track:#E4E4E7;--fill:#09090B;--hover:rgba(0,0,0,.05);--line:#EDEDF0;
+  }
+  *{box-sizing:border-box;-webkit-user-select:none;user-select:none}
+  html,body{margin:0;background:transparent;overflow:hidden}
+  body{font-family:var(--mono);font-size:12px;color:var(--tx);-webkit-font-smoothing:antialiased}
+  #menu{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+        padding:6px;width:300px;overflow:hidden;
+        box-shadow:0 18px 50px -12px rgba(0,0,0,.7),0 0 0 .5px rgba(255,255,255,.03) inset}
+  .item{display:flex;align-items:center;gap:10px;width:100%;border:0;background:transparent;
+        color:var(--tx);font-family:var(--mono);font-size:12.5px;text-align:left;
+        padding:9px 10px;border-radius:8px;cursor:pointer;transition:background .1s}
+  .item:hover{background:var(--hover)}
+  .item .ic{width:15px;height:15px;flex:0 0 15px;color:var(--tx2);stroke-width:1.6}
+  .item.danger:hover{background:rgba(255,59,48,.12)}
+  .item.danger:hover .ic,.item.danger:hover .lab{color:var(--red)}
+  .item .lab{flex:1}
+  .chk{width:15px;height:15px;color:var(--green);opacity:0;flex:0 0 15px}
+  .chk.on{opacity:1}
+  .sep{height:1px;background:var(--line);margin:6px 8px}
+  .sect{font-size:9.5px;text-transform:uppercase;letter-spacing:.22em;color:var(--tx3);
+        padding:8px 12px 5px}
+  .sub{font-size:9.5px;letter-spacing:.06em;color:var(--tx3);padding:6px 12px 4px 12px}
+  .row{display:flex;align-items:center;gap:9px;padding:5px 12px}
+  .row .ic{width:13px;height:13px;flex:0 0 13px;color:var(--tx3);stroke-width:1.5}
+  .row .rl{width:74px;flex:0 0 74px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .bar{flex:1;height:5px;background:var(--track);border-radius:3px;overflow:hidden}
+  .row .bar > i{display:block;height:100%;background:var(--fill);border-radius:3px;transition:width .3s}
+  .row .bar.warn > i{background:var(--yellow)} .row .bar.bad > i{background:var(--red)}
+  .row .rv{width:62px;flex:0 0 62px;text-align:right;color:var(--tx);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div id="menu">
+  <button class="item" onclick="call('show_dashboard')">
+    <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="4" width="18" height="13" rx="1.5"/><path d="M8 20h8M12 17v3"/></svg>
+    <span class="lab">Show TokenScope</span>
+  </button>
+  <div class="sep"></div>
+  <div class="sect">Claude · usage limits</div>
+  <div id="claude"></div>
+  <div class="sep"></div>
+  <div class="sect">Codex · usage limits</div>
+  <div id="codex"></div>
+  <div class="sub">GPT-5.3-Codex-Spark</div>
+  <div id="spark"></div>
+  <div class="sep"></div>
+  <button class="item" onclick="toggleStartup()">
+    <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 3v11m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
+    <span class="lab">Start with Windows</span>
+    <svg class="chk" id="chk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12l5 5L20 6"/></svg>
+  </button>
+  <button class="item danger" onclick="call('quit_app')">
+    <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 4v8M7.5 7a7 7 0 1 0 9 0"/></svg>
+    <span class="lab">Quit</span>
+  </button>
+</div>
+<script>
+const ICON_CLOCK='<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>';
+function call(name){ try{ window.pywebview.api[name](); }catch(e){} }
+function _bar(label, pct, value, cls){
+  const w = pct==null?0:Math.max(0,Math.min(100,pct));
+  return `<div class="row">${ICON_CLOCK}<span class="rl">${label}</span>`+
+         `<span class="bar ${cls}"><i style="width:${w}%"></i></span><span class="rv">${value}</span></div>`;
+}
+// Codex: bar = remaining, red when low (matches the dashboard's barRemain).
+function row(label, leftPct){
+  const cls = leftPct<=10?"bad":leftPct<=25?"warn":"";
+  return _bar(label, leftPct, leftPct==null?"—":Math.round(leftPct)+"% left", cls);
+}
+// Claude: bar = used, fills 0->100 as consumed, red when high (matches the dashboard's bar).
+function rowUsed(label, usedPct){
+  const cls = usedPct>=90?"bad":usedPct>=75?"warn":"";
+  return _bar(label, usedPct, usedPct==null?"—":Math.round(usedPct)+"% used", cls);
+}
+function claudeUsed(u,label){
+  for(const l of ((u.claude||{}).limits||[])) if(l.label===label && l.used_percent!=null) return l.used_percent;
+  return null;
+}
+function codexLeft(cx,key){
+  const l = cx[key]; if(l && l.used_percent!=null) return 100-l.used_percent; return 100;
+}
+async function refreshTray(){
+  let u={};
+  try{ u = await (await fetch("/api/local/utilization",{cache:"no-store"})).json(); }catch(e){}
+  const cx = u.codex||{};
+  document.getElementById("claude").innerHTML =
+    rowUsed("5h",claudeUsed(u,"5h"))+rowUsed("Weekly (All)",claudeUsed(u,"All"))+rowUsed("Sonnet only",claudeUsed(u,"Sonnet only"));
+  document.getElementById("codex").innerHTML =
+    row("5h",codexLeft(cx,"primary"))+row("Weekly",codexLeft(cx,"secondary"));
+  document.getElementById("spark").innerHTML =
+    row("5h",codexLeft(cx,"spark_primary"))+row("Weekly",codexLeft(cx,"spark_secondary"));
+  try{
+    const on = await window.pywebview.api.startup_enabled();
+    document.getElementById("chk").classList.toggle("on",!!on);
+  }catch(e){}
+  fitWindow();
+}
+function fitWindow(){
+  const m=document.getElementById("menu").getBoundingClientRect();
+  try{ window.pywebview.api.resize(Math.ceil(m.width)+2, Math.ceil(m.height)+2); }catch(e){}
+}
+async function toggleStartup(){
+  try{ const on=await window.pywebview.api.toggle_startup(); document.getElementById("chk").classList.toggle("on",!!on); }catch(e){}
+}
+async function applyTheme(){
+  try{ const t=(await (await fetch("/api/theme",{cache:"no-store"})).json()).theme;
+       document.documentElement.setAttribute("data-theme", t==="light"?"light":"dark"); }catch(e){}
+}
+window.addEventListener("pywebviewready", ()=>{ applyTheme(); refreshTray(); });
+window.addEventListener("focus", ()=>{ applyTheme(); refreshTray(); });
+window.addEventListener("blur", ()=>{ call("dismiss"); });
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") call("dismiss"); });
+document.addEventListener("contextmenu", e=>e.preventDefault());  // no native WebView2 menu
+// In case pywebviewready already fired before listeners attached:
+if(window.pywebview && window.pywebview.api){ applyTheme(); refreshTray(); }
 </script>
 </body>
 </html>

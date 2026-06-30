@@ -4,6 +4,53 @@ All notable changes to TokenScope are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-06-30
+
+### Added
+
+- **Custom Win32 system-tray menu (frameless HTML popup).** The native pystray menu is
+  replaced by a self-contained `Win32Tray` icon (`Shell_NotifyIcon`) whose left- *or*
+  right-click opens a styled, theme-aware popup at the cursor — Windows never draws a
+  native menu. The popup lists the live usage limits (Claude `5h` / `Weekly (All)` /
+  `Sonnet only`; Codex `5h` / `Weekly`; `GPT-5.3-Codex-Spark` `5h` / `Weekly`) plus
+  *Show TokenScope*, *Start with Windows* and *Quit*. (`desktop/tray.py`, `desktop/web.py`)
+- **GPT-5.3-Codex-Spark usage limits** in the Codex utilization card and the tray popup
+  (`5h` + `Weekly`), grouped under a labelled header. (`desktop/web.py`, `backend/local_sources.py`)
+- **"Start with Windows (minimized)" toggle.** Writes an `HKCU\…\Run` entry that relaunches
+  the app with `--minimized` (window starts hidden in the tray). (`desktop/tray.py`)
+- **`/tray` route** serving the popup page; `GET /api/theme` without a value now reads the
+  current theme non-destructively. (`desktop/server.py`)
+
+### Changed
+
+- **Codex utilization scan window widened 24h → 30d.** Idle or freshly-reset limits (and
+  the less-frequently-logged Spark limits) now still display; any window whose reset has
+  passed rolls over to 100% left. A 24h window blanked the panel whenever Codex hadn't been
+  used in the last day. (`backend/local_sources.py`)
+- **Codex card always renders the limit bars**, defaulting to 100% left when a window
+  hasn't been observed yet, instead of showing "no codex rate-limit data in recent
+  sessions". (`desktop/web.py`)
+- **Expired Claude OAuth token keeps the subscription panel populated.** A present-but-expired
+  token now stays in `subscription` mode and serves the cached limits rather than falsely
+  reporting "not signed in" until Claude Code refreshes the token. (`backend/local_sources.py`)
+- **Tray popup placement is DPI- and multi-monitor-aware** — sized and positioned against
+  the work area and scale factor of the monitor under the cursor. (`desktop/tray.py`)
+- **Dropped the `pystray` dependency**; the tray is now pure Win32. (`desktop/requirements.txt`,
+  `desktop/tokenscope-tray.spec`)
+- Tray popup shows Claude as `% used` (bar fills as consumed) and Codex/Spark as `% left`,
+  matching each tool's dashboard convention. (`desktop/web.py`)
+
+### Fixed
+
+- **Tray popup opens reliably and dismisses on click-away.** Show/position/hide go through
+  Win32 (`SetWindowPos`), focus is forced with the `AttachThreadInput` trick, and a Win32
+  watcher hides the popup once it loses the foreground — WebView2 does not fire a reliable
+  JS `blur`. (`desktop/tray.py`)
+- **Right-click on the tray icon works on Windows 11** (`WM_CONTEXTMENU` is handled, not only
+  `WM_RBUTTONUP`). (`desktop/tray.py`)
+- **Tray icon re-adds itself when the shell restarts** (`TaskbarCreated`). (`desktop/tray.py`)
+- The popup no longer shows the native WebView2 context menu on right-click. (`desktop/web.py`)
+
 ## [1.1.0] - 2026-06-26
 
 ### Added
@@ -62,5 +109,6 @@ Initial release: desktop tray app, FR/EN i18n, themes, de-branded. Local-first t
 and subscription tracker for Claude Code and Codex, shipping as a Windows tray app and a
 React + FastAPI web app.
 
+[1.2.0]: https://github.com/imnotStealthy/tokenscope/releases/tag/v1.2.0
 [1.1.0]: https://github.com/imnotStealthy/tokenscope/releases/tag/v1.1.0
 [1.0.0]: https://github.com/imnotStealthy/tokenscope/releases/tag/v1.0.0

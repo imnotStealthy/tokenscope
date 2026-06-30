@@ -21,7 +21,7 @@ for _p in (_HERE, os.path.join(os.path.dirname(_HERE), "backend")):
         sys.path.insert(0, _p)
 
 import local_sources as ls  # noqa: E402
-from web import INDEX_HTML  # noqa: E402
+from web import INDEX_HTML, TRAY_HTML  # noqa: E402
 
 PREFERRED_PORT = 8765
 _VALID_TOOLS = ("claude_api", "codex", "antigravity")
@@ -96,6 +96,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path in ("/", "/index.html"):
                 self._send(200, INDEX_HTML, "text/html; charset=utf-8")
+            elif path == "/tray":
+                self._send(200, TRAY_HTML, "text/html; charset=utf-8")
             elif path == "/api/local/status":
                 self._json(ls.read_local_status())
             elif path == "/api/local/summary":
@@ -110,7 +112,8 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/local/utilization":
                 self._json(ls.read_local_utilization())
             elif path == "/api/theme":
-                self._json({"theme": set_theme(q.get("theme", ["dark"])[0])})
+                th = q.get("theme", [None])[0]  # GET without a value just reads (tray popup)
+                self._json({"theme": set_theme(th) if th else get_theme()})
             else:
                 self._send(404, "not found", "text/plain; charset=utf-8")
         except Exception as e:  # never take the server down on one bad request
