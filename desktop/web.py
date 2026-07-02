@@ -18,6 +18,7 @@ INDEX_HTML = r"""<!doctype html>
     --headInset:rgba(255,255,255,.04);--headShadow:rgba(0,0,0,.9);
     --brandFrom:#fff;--brandTo:#c4c4c8;--brandDot1:#fff;--brandDot2:#52525b;--brandGlow:rgba(255,255,255,.35);
     --scrollThumb:#1d1d20;--scrollEdge:#000;--scrollHover:#34343a;--selBg:rgba(255,255,255,.16);
+    --cClaude:#fff;--cCodex:#71717A;--cAg:#FFCC00;--gridLine:#1a1a1c;
   }
   html[data-theme="light"]{
     --bg:#fff;--surface:#fff;--surface2:#F4F4F5;--border:#E4E4E7;
@@ -29,6 +30,7 @@ INDEX_HTML = r"""<!doctype html>
     --headInset:rgba(0,0,0,.04);--headShadow:rgba(0,0,0,.12);
     --brandFrom:#09090B;--brandTo:#52525B;--brandDot1:#09090B;--brandDot2:#a1a1aa;--brandGlow:rgba(0,0,0,.18);
     --scrollThumb:#c4c4c8;--scrollEdge:#fff;--scrollHover:#a1a1aa;--selBg:rgba(0,0,0,.12);
+    --cClaude:#09090B;--cCodex:#A1A1AA;--cAg:#EAB308;--gridLine:#EDEDF0;
   }
   *{box-sizing:border-box}
   html{scrollbar-width:thin;scrollbar-color:var(--scrollThumb) var(--scrollEdge)}
@@ -104,6 +106,12 @@ INDEX_HTML = r"""<!doctype html>
   table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
   th{font-size:10px;text-transform:uppercase;letter-spacing:.2em;color:var(--tx3);
      font-weight:500;text-align:right;padding:12px 16px;border-bottom:1px solid var(--border)}
+  th[data-k]{cursor:pointer;user-select:none;transition:color .12s}
+  th[data-k]:hover{color:var(--tx)}
+  th.s-asc::after{content:" ▲";font-size:8px} th.s-desc::after{content:" ▼";font-size:8px}
+  .upd{display:none;align-items:center;gap:6px;border:1px solid var(--yellow);border-radius:7px;
+       padding:6px 12px;font-size:11px;letter-spacing:.06em;color:var(--yellow);text-decoration:none}
+  .upd:hover{background:rgba(255,204,0,.1)}
   th.l,td.l{text-align:left}
   td{padding:10px 16px;border-bottom:1px solid var(--rowLine);font-size:12px}
   tr:hover td{background:var(--rowHover)}
@@ -127,6 +135,24 @@ INDEX_HTML = r"""<!doctype html>
   .about a.gh svg{width:15px;height:15px;fill:currentColor}
   .foot{margin-top:32px;padding-top:24px;border-top:1px solid var(--rowLine);
         font-size:10px;text-transform:uppercase;letter-spacing:.25em;color:var(--tx3)}
+  /* tokens_over_time chart */
+  .chart-wrap{position:relative}
+  #chart-svg{display:block;width:100%}
+  #chart-svg text{font-family:var(--mono);font-size:10px;fill:var(--tx3)}
+  #chart-svg .grid{stroke:var(--gridLine)}
+  #chart-svg .hband{fill:transparent;cursor:crosshair}
+  #chart-svg .hband:hover{fill:var(--segHover)}
+  .chart-tip{position:absolute;pointer-events:none;display:none;z-index:6;min-width:170px;
+             background:var(--surface2);border:1px solid var(--border);border-radius:7px;
+             padding:9px 11px;font-size:11px;box-shadow:0 12px 32px -10px rgba(0,0,0,.55)}
+  .chart-tip .td{font-size:10px;text-transform:uppercase;letter-spacing:.2em;color:var(--tx3);margin-bottom:7px}
+  .chart-tip .tr{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:1.5px 0}
+  .chart-tip .tr .n{display:flex;align-items:center;gap:7px;color:var(--tx2)}
+  .chart-tip .tr .v{font-variant-numeric:tabular-nums;color:var(--tx)}
+  .chart-tip .tr.tt{border-top:1px solid var(--rowLine);margin-top:5px;padding-top:5px}
+  .sw{width:8px;height:8px;border-radius:2px;display:inline-block;flex:0 0 8px}
+  .legend{display:flex;align-items:center;gap:14px;letter-spacing:.15em}
+  .legend .li{display:flex;align-items:center;gap:6px}
 </style>
 </head>
 <body>
@@ -159,6 +185,11 @@ INDEX_HTML = r"""<!doctype html>
         <button data-th="dark">dark</button>
         <button data-th="light">light</button>
       </div>
+      <div class="seg" id="export" title="export current summary">
+        <button data-x="csv">csv</button>
+        <button data-x="json">json</button>
+      </div>
+      <a class="upd" id="upd" target="_blank" rel="noopener noreferrer"></a>
     </div>
   </div>
 </header>
@@ -173,6 +204,17 @@ INDEX_HTML = r"""<!doctype html>
   </section>
 
   <section class="grid g4" id="cards"></section>
+
+  <section>
+    <div class="card" data-key="chart">
+      <div class="head"><span class="lbl">// tokens_over_time</span><span class="lbl legend" id="chart-legend"></span></div>
+      <div class="body chart-wrap">
+        <svg id="chart-svg" height="230" role="img" aria-label="Daily token usage"></svg>
+        <div class="chart-tip" id="chart-tip"></div>
+        <div class="empty" id="chart-empty" style="display:none"></div>
+      </div>
+    </div>
+  </section>
 
   <section>
     <div class="card" data-key="budget">
@@ -190,8 +232,8 @@ INDEX_HTML = r"""<!doctype html>
   <section>
     <div class="card" data-key="project">
       <div class="head"><span class="lbl">// usage_by_project</span><span class="lbl" id="proj-n">0 projects</span></div>
-      <div style="overflow-x:auto"><table>
-        <thead><tr><th class="l">project</th><th class="l">tools</th><th>in</th><th>out</th><th>total</th><th>calls</th><th>cost</th></tr></thead>
+      <div style="overflow-x:auto"><table id="proj-table">
+        <thead><tr><th class="l" data-k="project">project</th><th class="l">tools</th><th data-k="in">in</th><th data-k="out">out</th><th data-k="total">total</th><th data-k="calls">calls</th><th data-k="cost">cost</th></tr></thead>
         <tbody id="proj-rows"></tbody>
       </table></div>
     </div>
@@ -200,8 +242,8 @@ INDEX_HTML = r"""<!doctype html>
   <section>
     <div class="card" data-key="model">
       <div class="head"><span class="lbl">// breakdown_by_model</span><span class="lbl" id="mdl-n">0 models</span></div>
-      <div style="overflow-x:auto"><table>
-        <thead><tr><th class="l">tool</th><th class="l">model</th><th>in</th><th>out</th><th>total</th><th>calls</th><th>cost</th></tr></thead>
+      <div style="overflow-x:auto"><table id="mdl-table">
+        <thead><tr><th class="l" data-k="tool">tool</th><th class="l" data-k="model">model</th><th data-k="in">in</th><th data-k="out">out</th><th data-k="total">total</th><th data-k="calls">calls</th><th data-k="cost">cost</th></tr></thead>
         <tbody id="mdl-rows"></tbody>
       </table></div>
     </div>
@@ -249,8 +291,10 @@ INDEX_HTML = r"""<!doctype html>
 </div>
 
 <script>
+const APP_VERSION="1.3.0", REPO="imnotStealthy/tokenscope";
 const TOOL_LABEL={claude_api:"Claude",codex:"Codex",antigravity:"Antigravity"};
 let DAYS=30, TOOL="", LAST_S=null, LAST_U=null, LOADING=false;
+const SORT={proj:{k:null,dir:-1}, mdl:{k:null,dir:-1}};
 const LS_D="tokenscope.budget.daily", LS_M="tokenscope.budget.monthly";
 const rangeLabel=d=>d===1?"24h":d>=100000?"lifetime":d+"d";
 
@@ -267,6 +311,7 @@ const I18N={
     completion:"completion", cache_est:"est. · cache {n} rd",
     projects:"{n} projects", no_project:"no project data · ensure ~/.claude or ~/.codex sessions exist",
     models:"{n} models", no_model:"no model data",
+    tt_total:"total", tt_cost:"cost", no_chart:"no daily data yet in this range",
     bud_real:"real spend (api)", bud_est:"est. (subscription)", today:"today", month:"this month",
     over:" · over {x}", daily_budget:"daily budget ($)", monthly_budget:"monthly budget ($)",
     now:"now", in_prefix:"in", u_d:"d", u_h:"h", u_m:"m",
@@ -284,6 +329,7 @@ const I18N={
     completion:"complétion", cache_est:"est. · cache {n} lec",
     projects:"{n} projets", no_project:"aucune donnée projet · vérifie les sessions ~/.claude ou ~/.codex",
     models:"{n} modèles", no_model:"aucune donnée modèle",
+    tt_total:"total", tt_cost:"coût", no_chart:"aucune donnée quotidienne sur cette plage",
     bud_real:"dépense réelle (api)", bud_est:"est. (abonnement)", today:"aujourd'hui", month:"ce mois",
     over:" · dépassé de {x}", daily_budget:"budget quotidien ($)", monthly_budget:"budget mensuel ($)",
     now:"maintenant", in_prefix:"dans", u_d:"j", u_h:"h", u_m:"m",
@@ -374,14 +420,17 @@ function renderUtil(u){
   }
   document.getElementById("cx-src").textContent=cx&&cx.plan_type?cx.plan_type:((cx&&cx.auth_mode)||t("na"));
   const cxb=document.getElementById("cx-body");
-  if(cx&&cx.available){let h="";
-    if(cx.primary)h+=barRemain("5h",cx.primary.used_percent,cx.primary.reset);
-    if(cx.secondary)h+=barRemain("weekly",cx.secondary.used_percent,cx.secondary.reset);
-    if(cx.spark_primary)h+=barRemain("spark 5h",cx.spark_primary.used_percent,cx.spark_primary.reset);
-    if(cx.spark_secondary)h+=barRemain("spark weekly",cx.spark_secondary.used_percent,cx.spark_secondary.reset);
-    if(cx.credits!=null)h+=`<div class="barhd" style="padding-top:4px;border-top:1px solid #161618"><span>credits</span><span class="w p">${esc(cx.credits)}</span></div>`;
-    cxb.innerHTML=h||`<div class="muted">${esc(t("cx_norate"))}</div>`;}
-  else{cxb.innerHTML=`<div class="muted">${esc(t("cx_none"))}</div>`;}
+  // Always show the limit bars (like the official ChatGPT usage page). When a window has
+  // no observed data yet, default to 100% left (0% used) instead of hiding the bar.
+  const cxRow=(label,lim)=>lim?barRemain(label,lim.used_percent,lim.reset):barRemain(label,0,null);
+  let h="";
+  h+=cxRow("5h",cx&&cx.primary);
+  h+=cxRow("weekly",cx&&cx.secondary);
+  h+=`<div class="barhd" style="padding-top:4px;border-top:1px solid var(--rowLine)"><span>${esc((cx&&cx.spark_label)||"GPT-5.3-Codex-Spark")}</span></div>`;
+  h+=cxRow("5h",cx&&cx.spark_primary);
+  h+=cxRow("weekly",cx&&cx.spark_secondary);
+  if(cx&&cx.credits!=null)h+=`<div class="barhd" style="padding-top:4px;border-top:1px solid var(--rowLine)"><span>credits</span><span class="w p">${esc(cx.credits)}</span></div>`;
+  cxb.innerHTML=h;
 }
 
 function renderSummary(s){
@@ -393,7 +442,7 @@ function renderSummary(s){
     ["total_cost_usd",fmtC(tot.cost_usd),t("cache_est",{n:fmtN(tot.cache_read_tokens)})],
   ].map(c=>`<div class="stat"><div class="lbl">${c[0]}</div><div class="v">${c[1]}</div><div class="s">${c[2]}</div></div>`).join("");
 
-  const pr=(s&&s.by_project)||[];
+  const pr=sortRows((s&&s.by_project)||[], SORT.proj);
   document.getElementById("proj-n").textContent=t("projects",{n:pr.length});
   document.getElementById("proj-rows").innerHTML=pr.length?pr.map(r=>`<tr>
     <td class="l w" title="${esc(r.project)}">${esc(r.project_name||r.project)}</td>
@@ -403,7 +452,7 @@ function renderSummary(s){
     <td class="muted">${r.entries}</td><td class="w">${fmtC(r.cost_usd)}</td></tr>`).join("")
     :`<tr><td colspan="7" class="empty">${esc(t("no_project"))}</td></tr>`;
 
-  const md=(s&&s.by_model)||[];
+  const md=sortRows((s&&s.by_model)||[], SORT.mdl);
   document.getElementById("mdl-n").textContent=t("models",{n:md.length});
   document.getElementById("mdl-rows").innerHTML=md.length?md.map(r=>`<tr>
     <td class="l muted">${esc(TOOL_LABEL[r.tool]||r.tool)}</td><td class="l w" title="${esc(r.model)}">${esc(prettyModel(r.model))}</td>
@@ -412,6 +461,170 @@ function renderSummary(s){
     <td class="muted">${r.entries}</td><td class="w">${fmtC(r.cost_usd)}</td></tr>`).join("")
     :`<tr><td colspan="7" class="empty">${esc(t("no_model"))}</td></tr>`;
 }
+
+// --- tokens_over_time: dependency-free stacked-bar SVG, theme-aware via CSS vars ---
+const CHART_TOOLS=[["claude_api","var(--cClaude)"],["codex","var(--cCodex)"],["antigravity","var(--cAg)"]];
+function chartDays(byday){
+  const map={}; (byday||[]).forEach(d=>{ if(d.day) map[d.day]=d; });
+  if(DAYS>90){ return (byday||[]).filter(d=>d.day); }        // lifetime: real days only
+  const out=[], now=Date.now();
+  for(let i=DAYS-1;i>=0;i--){
+    const day=new Date(now-i*864e5).toISOString().slice(0,10);
+    out.push(map[day]||{day, claude_api:0, codex:0, antigravity:0, cost_usd:0});
+  }
+  return out;
+}
+function niceMax(v){ if(v<=0)return 1; const p=Math.pow(10,Math.floor(Math.log10(v))); const u=v/p;
+  return (u<=1?1:u<=2?2:u<=5?5:10)*p; }
+function renderChart(s){
+  const svg=document.getElementById("chart-svg"), tip=document.getElementById("chart-tip"),
+        empty=document.getElementById("chart-empty"), legend=document.getElementById("chart-legend");
+  const tools=TOOL?CHART_TOOLS.filter(x=>x[0]===TOOL):CHART_TOOLS;
+  legend.innerHTML=tools.map(([k,c])=>`<span class="li"><span class="sw" style="background:${c}"></span>${esc(TOOL_LABEL[k]||k)}</span>`).join("")
+    +`<span class="li"><span class="sw" style="background:#22c55e"></span>${esc(t("tt_cost"))} $</span>`;
+  const days=chartDays(s&&s.by_day);
+  const hasData=days.some(d=>tools.some(([k])=>(d[k]||0)>0));
+  svg.style.display=hasData?"":"none";
+  empty.style.display=hasData?"none":"";
+  if(!hasData){ empty.textContent=t("no_chart"); tip.style.display="none"; return; }
+  const W=Math.max(320,svg.clientWidth||svg.parentElement.clientWidth||800), H=230,
+        padL=44, padR=8, padT=10, padB=22, iw=W-padL-padR, ih=H-padT-padB;
+  const max=niceMax(Math.max(...days.map(d=>tools.reduce((a,[k])=>a+(d[k]||0),0))));
+  const n=days.length, slot=iw/n, bw=Math.max(1.5,Math.min(26,slot*0.62));
+  svg.setAttribute("viewBox",`0 0 ${W} ${H}`); svg.setAttribute("width",W); svg.setAttribute("height",H);
+  let g="";
+  for(let i=0;i<=4;i++){                                     // y grid + labels
+    const y=padT+ih-ih*i/4;
+    g+=`<line class="grid" x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}"/>`;
+    g+=`<text x="${padL-6}" y="${y+3}" text-anchor="end">${fmtN(max*i/4)}</text>`;
+  }
+  const step=Math.max(1,Math.ceil(n/10));                    // sparse x labels
+  days.forEach((d,i)=>{
+    if(i%step===0) g+=`<text x="${padL+slot*i+slot/2}" y="${H-6}" text-anchor="middle">${esc((d.day||"").slice(5))}</text>`;
+  });
+  days.forEach((d,i)=>{
+    const x=padL+slot*i+(slot-bw)/2; let y=padT+ih;
+    tools.forEach(([k,c])=>{
+      const v=d[k]||0; if(!v)return;
+      const h=Math.max(v>0?1:0, v/max*ih); y-=h;
+      g+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" style="fill:${c}"/>`;
+    });
+    g+=`<rect class="hband" data-i="${i}" x="${(padL+slot*i).toFixed(1)}" y="${padT}" width="${slot.toFixed(1)}" height="${ih}"/>`;
+  });
+  // Daily cost overlay: green line on its own scale (top of plot = costMax).
+  const costMax=niceMax(Math.max(...days.map(d=>d.cost_usd||0)));
+  if(costMax>0 && days.some(d=>(d.cost_usd||0)>0)){
+    const pts=days.map((d,i)=>`${(padL+slot*i+slot/2).toFixed(1)},${(padT+ih-(d.cost_usd||0)/costMax*ih).toFixed(1)}`).join(" ");
+    g+=n>1?`<polyline points="${pts}" fill="none" stroke="#22c55e" stroke-width="1.5" opacity=".9"/>`
+          :`<circle cx="${padL+slot/2}" cy="${(padT+ih-(days[0].cost_usd||0)/costMax*ih).toFixed(1)}" r="3" fill="#22c55e"/>`;
+    g+=`<text x="${W-padR}" y="${padT+9}" text-anchor="end" style="fill:#22c55e">${esc(fmtC(costMax))}</text>`;
+  }
+  svg.innerHTML=g;
+  svg.onmouseleave=()=>{ tip.style.display="none"; };
+  svg.onmousemove=e=>{
+    const b=e.target.closest(".hband"); if(!b){ tip.style.display="none"; return; }
+    const d=days[Number(b.dataset.i)]; if(!d) return;
+    const rows=tools.map(([k,c])=>`<div class="tr"><span class="n"><span class="sw" style="background:${c}"></span>${esc(TOOL_LABEL[k]||k)}</span><span class="v">${fmtN(d[k]||0)}</span></div>`).join("");
+    const tot=tools.reduce((a,[k])=>a+(d[k]||0),0);
+    tip.innerHTML=`<div class="td">${esc(d.day)}</div>${rows}
+      <div class="tr tt"><span class="n">${esc(t("tt_total"))}</span><span class="v">${fmtN(tot)}</span></div>
+      <div class="tr"><span class="n">${esc(t("tt_cost"))}</span><span class="v">${fmtC(d.cost_usd)}</span></div>`;
+    tip.style.display="block";
+    const wrap=svg.parentElement.getBoundingClientRect(), tw=tip.offsetWidth;
+    let lx=e.clientX-wrap.left+14; if(lx+tw>wrap.width-8) lx=e.clientX-wrap.left-tw-14;
+    tip.style.left=Math.max(4,lx)+"px";
+    tip.style.top=Math.max(4,e.clientY-wrap.top-10)+"px";
+  };
+}
+let _rsz; window.addEventListener("resize",()=>{ clearTimeout(_rsz); _rsz=setTimeout(()=>{ if(LAST_S) renderChart(LAST_S); },150); });
+
+// --- sortable tables ---
+const SORT_VAL={project:r=>String(r.project_name||r.project||"").toLowerCase(),
+  tool:r=>String(r.tool||""), model:r=>String(r.model||"").toLowerCase(),
+  in:r=>r.input_tokens||0, out:r=>r.output_tokens||0,
+  total:r=>(r.input_tokens||0)+(r.output_tokens||0), calls:r=>r.entries||0, cost:r=>r.cost_usd||0};
+function sortRows(arr,s){
+  if(!s.k||!SORT_VAL[s.k]) return arr;
+  const v=SORT_VAL[s.k];
+  return arr.slice().sort((a,b)=>{const x=v(a),y=v(b);
+    return (typeof x==="string"?x.localeCompare(y):x-y)*s.dir;});
+}
+function markSort(){
+  [["proj-table","proj"],["mdl-table","mdl"]].forEach(([id,key])=>{
+    document.querySelectorAll(`#${id} th[data-k]`).forEach(th=>{
+      th.classList.remove("s-asc","s-desc");
+      const s=SORT[key];
+      if(s.k===th.dataset.k) th.classList.add(s.dir===1?"s-asc":"s-desc");
+    });
+  });
+}
+[["proj-table","proj"],["mdl-table","mdl"]].forEach(([id,key])=>{
+  document.querySelectorAll(`#${id} th[data-k]`).forEach(th=>{
+    th.addEventListener("click",()=>{
+      const s=SORT[key];
+      if(s.k===th.dataset.k){ if(s.dir===1){s.k=null;s.dir=-1;} else s.dir=1; }  // desc -> asc -> default
+      else { s.k=th.dataset.k; s.dir=-1; }
+      markSort();
+      if(LAST_S) renderSummary(LAST_S);
+    });
+  });
+});
+
+// --- CSV / JSON export of the currently loaded summary ---
+function download(name,blob){
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+}
+document.getElementById("export").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b||!LAST_S)return;
+  const stamp=new Date().toISOString().slice(0,10), range=rangeLabel(DAYS)+(TOOL?"_"+TOOL:"");
+  if(b.dataset.x==="json"){
+    download(`tokenscope_${range}_${stamp}.json`,
+      new Blob([JSON.stringify(LAST_S,null,2)],{type:"application/json"}));
+    return;
+  }
+  const esc0=v=>{v=String(v==null?"":v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+  const lines=[["section","name","tool_or_tools","input_tokens","output_tokens","total_tokens","calls","cost_usd"].join(",")];
+  (LAST_S.by_day||[]).forEach(d=>lines.push(["day",d.day,"",d.input_tokens||0,d.output_tokens||0,
+    (d.claude_api||0)+(d.codex||0)+(d.antigravity||0),"",d.cost_usd||0].map(esc0).join(",")));
+  (LAST_S.by_project||[]).forEach(r=>lines.push(["project",r.project_name||r.project,
+    Object.keys(r.tools||{}).join("|"),r.input_tokens||0,r.output_tokens||0,
+    (r.input_tokens||0)+(r.output_tokens||0),r.entries||0,r.cost_usd||0].map(esc0).join(",")));
+  (LAST_S.by_model||[]).forEach(r=>lines.push(["model",r.model,r.tool,r.input_tokens||0,
+    r.output_tokens||0,(r.input_tokens||0)+(r.output_tokens||0),r.entries||0,r.cost_usd||0].map(esc0).join(",")));
+  download(`tokenscope_${range}_${stamp}.csv`, new Blob([lines.join("\n")],{type:"text/csv"}));
+});
+
+// --- update check: GitHub latest release, cached 6h, shown as a header pill ---
+function newerVersion(a,b){
+  const x=String(a).split(".").map(Number), y=String(b).split(".").map(Number);
+  for(let i=0;i<3;i++){ if((x[i]||0)>(y[i]||0)) return true; if((x[i]||0)<(y[i]||0)) return false; }
+  return false;
+}
+async function checkUpdate(){
+  const CK="tokenscope.update.latest";
+  let tag=null;
+  try{
+    const c=JSON.parse(localStorage.getItem(CK)||"null");
+    if(c && Date.now()-c.t<216e5) tag=c.tag;
+    if(!tag){
+      const r=await fetch("https://api.github.com/repos/"+REPO+"/releases/latest",{cache:"no-store"});
+      if(!r.ok) return;
+      tag=(await r.json()).tag_name||"";
+      localStorage.setItem(CK,JSON.stringify({t:Date.now(),tag}));
+    }
+  }catch(e){ return; }
+  const v=String(tag).replace(/^v/,"");
+  if(v && newerVersion(v,APP_VERSION)){
+    const a=document.getElementById("upd");
+    a.textContent="v"+v+" ↗";
+    a.href="https://github.com/"+REPO+"/releases/latest";
+    a.style.display="inline-flex";
+  }
+}
+checkUpdate();
 
 function getBud(k,def){const v=parseFloat(localStorage.getItem(k));return isFinite(v)&&v>0?v:def;}
 function budBar(label,spend,cap){
@@ -444,7 +657,7 @@ async function load(){
       fetch("/api/local/utilization").then(r=>r.json()).catch(()=>null),
     ]);
     LAST_S=sr; LAST_U=ur;
-    renderSummary(sr); renderUtil(ur); renderBudget(sr,ur);
+    renderSummary(sr); renderChart(sr); renderUtil(ur); renderBudget(sr,ur);
     document.getElementById("dot").className="dot ok";
     setStatus();
   }catch(e){
@@ -478,7 +691,7 @@ document.getElementById("lang").addEventListener("click",e=>{
   LANG=b.dataset.l; localStorage.setItem("tokenscope.lang",LANG);
   document.querySelectorAll("#lang button").forEach(x=>x.classList.toggle("active",x===b));
   applyStatic();
-  if(LAST_S){renderSummary(LAST_S); renderBudget(LAST_S,LAST_U);}
+  if(LAST_S){renderSummary(LAST_S); renderChart(LAST_S); renderBudget(LAST_S,LAST_U);}
   if(LAST_U) renderUtil(LAST_U);
   if(!LOADING) setStatus();
 });
@@ -512,6 +725,168 @@ setInterval(()=>{                          // tick clock + reset countdowns ever
   if(!LOADING) setStatus();
   if(LAST_U) renderUtil(LAST_U);
 }, 1000);
+</script>
+</body>
+</html>
+"""
+
+
+# ===== Tray popup (frameless pywebview window opened from the system-tray icon) =====
+TRAY_HTML = r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TokenScope Menu</title>
+<style>
+  :root{
+    --bg:#0A0A0A;--surface:#0A0A0A;--border:#27272A;--tx:#fff;--tx2:#A1A1AA;--tx3:#52525B;
+    --red:#FF3B30;--yellow:#FFCC00;--green:#22c55e;--track:#1c1c1f;--fill:#fff;
+    --hover:rgba(255,255,255,.06);--line:#1a1a1c;
+    --mono:'JetBrains Mono','IBM Plex Mono',ui-monospace,Consolas,monospace;
+  }
+  html[data-theme="light"]{
+    --bg:#fff;--surface:#fff;--border:#E4E4E7;--tx:#09090B;--tx2:#52525B;--tx3:#A1A1AA;
+    --track:#E4E4E7;--fill:#09090B;--hover:rgba(0,0,0,.05);--line:#EDEDF0;
+  }
+  *{box-sizing:border-box;-webkit-user-select:none;user-select:none}
+  html,body{margin:0;background:transparent;overflow:hidden}
+  body{font-family:var(--mono);font-size:12px;color:var(--tx);-webkit-font-smoothing:antialiased}
+  #menu{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+        padding:6px;width:300px;overflow:hidden;
+        box-shadow:0 18px 50px -12px rgba(0,0,0,.7),0 0 0 .5px rgba(255,255,255,.03) inset}
+  .item{display:flex;align-items:center;gap:10px;width:100%;border:0;background:transparent;
+        color:var(--tx);font-family:var(--mono);font-size:12.5px;text-align:left;
+        padding:9px 10px;border-radius:8px;cursor:pointer;transition:background .1s}
+  .item:hover{background:var(--hover)}
+  .item .ic{width:15px;height:15px;flex:0 0 15px;color:var(--tx2);stroke-width:1.6}
+  .item.danger:hover{background:rgba(255,59,48,.12)}
+  .item.danger:hover .ic,.item.danger:hover .lab{color:var(--red)}
+  .item .lab{flex:1}
+  .chk{width:15px;height:15px;color:var(--green);opacity:0;flex:0 0 15px}
+  .chk.on{opacity:1}
+  .sep{height:1px;background:var(--line);margin:6px 8px}
+  .sect{font-size:9.5px;text-transform:uppercase;letter-spacing:.22em;color:var(--tx3);
+        padding:8px 12px 5px;display:flex;align-items:center;justify-content:space-between;
+        cursor:pointer;border-radius:6px;transition:background .1s}
+  .sect:hover{background:var(--hover);color:var(--tx2)}
+  .sect .car{font-size:9px;letter-spacing:0;transition:transform .15s}
+  .grp.collapsed .car{transform:rotate(-90deg)}
+  .grp.collapsed .gbody{display:none}
+  .sub{font-size:9.5px;letter-spacing:.06em;color:var(--tx3);padding:6px 12px 4px 12px}
+  .row{display:flex;align-items:center;gap:9px;padding:5px 12px}
+  .row .ic{width:13px;height:13px;flex:0 0 13px;color:var(--tx3);stroke-width:1.5}
+  .row .rl{width:86px;flex:0 0 86px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .bar{flex:1;height:5px;background:var(--track);border-radius:3px;overflow:hidden}
+  .row .bar > i{display:block;height:100%;background:var(--fill);border-radius:3px;transition:width .3s}
+  .row .bar.warn > i{background:var(--yellow)} .row .bar.bad > i{background:var(--red)}
+  .row .rv{width:62px;flex:0 0 62px;text-align:right;color:var(--tx);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div id="menu">
+  <button class="item" onclick="call('show_dashboard')">
+    <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="4" width="18" height="13" rx="1.5"/><path d="M8 20h8M12 17v3"/></svg>
+    <span class="lab">Show TokenScope</span>
+  </button>
+  <div class="sep"></div>
+  <div class="grp" data-g="claude">
+    <div class="sect" onclick="toggleGrp('claude')">Claude · usage limits<span class="car">▾</span></div>
+    <div class="gbody" id="claude"></div>
+  </div>
+  <div class="sep"></div>
+  <div class="grp" data-g="codex">
+    <div class="sect" onclick="toggleGrp('codex')">Codex · usage limits<span class="car">▾</span></div>
+    <div class="gbody">
+      <div id="codex"></div>
+      <div class="sub">GPT-5.3-Codex-Spark</div>
+      <div id="spark"></div>
+    </div>
+  </div>
+  <div class="sep"></div>
+  <button class="item" onclick="toggleStartup()">
+    <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 3v11m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
+    <span class="lab">Start with Windows</span>
+    <svg class="chk" id="chk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12l5 5L20 6"/></svg>
+  </button>
+  <button class="item danger" onclick="call('quit_app')">
+    <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 4v8M7.5 7a7 7 0 1 0 9 0"/></svg>
+    <span class="lab">Quit</span>
+  </button>
+</div>
+<script>
+const ICON_CLOCK='<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>';
+function call(name){ try{ window.pywebview.api[name](); }catch(e){} }
+function _bar(label, pct, value, cls){
+  const w = pct==null?0:Math.max(0,Math.min(100,pct));
+  return `<div class="row">${ICON_CLOCK}<span class="rl">${label}</span>`+
+         `<span class="bar ${cls}"><i style="width:${w}%"></i></span><span class="rv">${value}</span></div>`;
+}
+// Codex: bar = remaining, red when low (matches the dashboard's barRemain).
+function row(label, leftPct){
+  const cls = leftPct<=10?"bad":leftPct<=25?"warn":"";
+  return _bar(label, leftPct, leftPct==null?"—":Math.round(leftPct)+"% left", cls);
+}
+// Claude: bar = used, fills 0->100 as consumed, red when high (matches the dashboard's bar).
+function rowUsed(label, usedPct){
+  const cls = usedPct>=90?"bad":usedPct>=75?"warn":"";
+  return _bar(label, usedPct, usedPct==null?"—":Math.round(usedPct)+"% used", cls);
+}
+// Render whatever limit windows the API reports (labels change over time:
+// Sonnet only -> Opus only -> Fable only, ...). "All" reads better as "Weekly (All)".
+function claudeRows(u){
+  const lims=((u.claude||{}).limits||[]).filter(l=>l.used_percent!=null);
+  if(!lims.length) return rowUsed("5h",null)+rowUsed("Weekly (All)",null);
+  return lims.map(l=>rowUsed(l.label==="All"?"Weekly (All)":l.label,l.used_percent)).join("");
+}
+function codexLeft(cx,key){
+  const l = cx[key]; if(l && l.used_percent!=null) return 100-l.used_percent; return 100;
+}
+async function refreshTray(){
+  let u={};
+  try{ u = await (await fetch("/api/local/utilization",{cache:"no-store"})).json(); }catch(e){}
+  const cx = u.codex||{};
+  document.getElementById("claude").innerHTML = claudeRows(u);
+  document.getElementById("codex").innerHTML =
+    row("5h",codexLeft(cx,"primary"))+row("Weekly",codexLeft(cx,"secondary"));
+  document.getElementById("spark").innerHTML =
+    row("5h",codexLeft(cx,"spark_primary"))+row("Weekly",codexLeft(cx,"spark_secondary"));
+  try{
+    const on = await window.pywebview.api.startup_enabled();
+    document.getElementById("chk").classList.toggle("on",!!on);
+  }catch(e){}
+  fitWindow();
+}
+function fitWindow(){
+  const m=document.getElementById("menu").getBoundingClientRect();
+  try{ window.pywebview.api.resize(Math.ceil(m.width)+2, Math.ceil(m.height)+2); }catch(e){}
+}
+// Collapsible sections keep the popup short; state persists across opens.
+function setGrp(g,col){
+  const el=document.querySelector(`.grp[data-g="${g}"]`); if(!el)return;
+  el.classList.toggle("collapsed",col);
+  localStorage.setItem("tokenscope.tray.collapse."+g,col?"1":"0");
+}
+function toggleGrp(g){
+  const el=document.querySelector(`.grp[data-g="${g}"]`); if(!el)return;
+  setGrp(g,!el.classList.contains("collapsed"));
+  fitWindow();
+}
+["claude","codex"].forEach(g=>setGrp(g,localStorage.getItem("tokenscope.tray.collapse."+g)==="1"));
+async function toggleStartup(){
+  try{ const on=await window.pywebview.api.toggle_startup(); document.getElementById("chk").classList.toggle("on",!!on); }catch(e){}
+}
+async function applyTheme(){
+  try{ const t=(await (await fetch("/api/theme",{cache:"no-store"})).json()).theme;
+       document.documentElement.setAttribute("data-theme", t==="light"?"light":"dark"); }catch(e){}
+}
+window.addEventListener("pywebviewready", ()=>{ applyTheme(); refreshTray(); });
+window.addEventListener("focus", ()=>{ applyTheme(); refreshTray(); });
+window.addEventListener("blur", ()=>{ call("dismiss"); });
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") call("dismiss"); });
+document.addEventListener("contextmenu", e=>e.preventDefault());  // no native WebView2 menu
+// In case pywebviewready already fired before listeners attached:
+if(window.pywebview && window.pywebview.api){ applyTheme(); refreshTray(); }
 </script>
 </body>
 </html>

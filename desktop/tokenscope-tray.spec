@@ -14,7 +14,6 @@ hiddenimports = [
     'icon',
     'requests',
     'jwt',                 # pyjwt (imported lazily inside local_sources)
-    'pystray._win32',      # Windows tray backend
     'webview',
     'webview.platforms.winforms',
     'webview.platforms.edgechromium',
