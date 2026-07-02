@@ -291,7 +291,7 @@ INDEX_HTML = r"""<!doctype html>
 </div>
 
 <script>
-const APP_VERSION="1.3.0", REPO="imnotStealthy/tokenscope";
+const APP_VERSION="1.3.1", REPO="imnotStealthy/tokenscope";
 const TOOL_LABEL={claude_api:"Claude",codex:"Codex",antigravity:"Antigravity"};
 let DAYS=30, TOOL="", LAST_S=null, LAST_U=null, LOADING=false;
 const SORT={proj:{k:null,dir:-1}, mdl:{k:null,dir:-1}};
