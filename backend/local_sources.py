@@ -394,6 +394,8 @@ def aggregate(events: List[dict], days: int, tool: Optional[str] = None) -> dict
     by_model: Dict[str, dict] = {}
     by_project: Dict[str, dict] = {}
     by_day: Dict[str, dict] = {}
+    by_hour: Dict[str, dict] = {}
+    want_hours = days <= 2  # hourly buckets only matter for the 24h view
     kept = 0
 
     for e in events:
@@ -452,6 +454,17 @@ def aggregate(events: List[dict], days: int, tool: Optional[str] = None) -> dict
         if t in bd:
             bd[t] += inp + out
 
+        if want_hours and ts is not None:
+            hk = ts.astimezone().strftime("%Y-%m-%dT%H")  # local hour bucket
+            bh = by_hour.setdefault(hk, {"hour": hk, "input_tokens": 0, "output_tokens": 0,
+                                         "cost_usd": 0.0, "claude_api": 0, "codex": 0,
+                                         "antigravity": 0})
+            bh["input_tokens"] += inp
+            bh["output_tokens"] += out
+            bh["cost_usd"] += cost
+            if t in bh:
+                bh[t] += inp + out
+
     def _round(d):
         d["cost_usd"] = round(d["cost_usd"], 4)
         return d
@@ -474,6 +487,7 @@ def aggregate(events: List[dict], days: int, tool: Optional[str] = None) -> dict
                               for p in by_project.values()),
                              key=lambda x: -x["input_tokens"] - x["output_tokens"]),
         "by_day": sorted((_round(v) for v in by_day.values()), key=lambda x: x["day"]),
+        "by_hour": sorted((_round(v) for v in by_hour.values()), key=lambda x: x["hour"]),
     }
 
 

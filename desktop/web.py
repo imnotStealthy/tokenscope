@@ -464,13 +464,31 @@ function renderSummary(s){
 
 // --- tokens_over_time: dependency-free stacked-bar SVG, theme-aware via CSS vars ---
 const CHART_TOOLS=[["claude_api","var(--cClaude)"],["codex","var(--cCodex)"],["antigravity","var(--cAg)"]];
-function chartDays(byday){
-  const map={}; (byday||[]).forEach(d=>{ if(d.day) map[d.day]=d; });
-  if(DAYS>90){ return (byday||[]).filter(d=>d.day); }        // lifetime: real days only
+// Hour label for the 24h view: FR "0h..23h", EN "12AM..11PM".
+function hourLabel(h){
+  if(LANG==="fr") return h+"h";
+  return h===0?"12AM":h<12?h+"AM":h===12?"12PM":(h-12)+"PM";
+}
+function chartDays(s){
+  const byday=(s&&s.by_day)||[];
+  if(DAYS===1){                                              // 24h: current LOCAL day, hour by hour
+    const map={}; ((s&&s.by_hour)||[]).forEach(h=>{ if(h.hour) map[h.hour]=h; });
+    const now=new Date(), p=v=>String(v).padStart(2,"0");
+    const dk=`${now.getFullYear()}-${p(now.getMonth()+1)}-${p(now.getDate())}`;
+    const out=[];
+    for(let h=0;h<24;h++){
+      const d=map[`${dk}T${p(h)}`]||{claude_api:0,codex:0,antigravity:0,cost_usd:0};
+      out.push({...d, day:`${dk} · ${hourLabel(h)}`, lbl:hourLabel(h)});
+    }
+    return out;
+  }
+  const map={}; byday.forEach(d=>{ if(d.day) map[d.day]=d; });
+  const mk=d=>({...d, lbl:(d.day||"").slice(5)});
+  if(DAYS>90){ return byday.filter(d=>d.day).map(mk); }      // lifetime: real days only
   const out=[], now=Date.now();
   for(let i=DAYS-1;i>=0;i--){
     const day=new Date(now-i*864e5).toISOString().slice(0,10);
-    out.push(map[day]||{day, claude_api:0, codex:0, antigravity:0, cost_usd:0});
+    out.push(mk(map[day]||{day, claude_api:0, codex:0, antigravity:0, cost_usd:0}));
   }
   return out;
 }
@@ -482,7 +500,7 @@ function renderChart(s){
   const tools=TOOL?CHART_TOOLS.filter(x=>x[0]===TOOL):CHART_TOOLS;
   legend.innerHTML=tools.map(([k,c])=>`<span class="li"><span class="sw" style="background:${c}"></span>${esc(TOOL_LABEL[k]||k)}</span>`).join("")
     +`<span class="li"><span class="sw" style="background:#22c55e"></span>${esc(t("tt_cost"))} $</span>`;
-  const days=chartDays(s&&s.by_day);
+  const days=chartDays(s);
   const hasData=days.some(d=>tools.some(([k])=>(d[k]||0)>0));
   svg.style.display=hasData?"":"none";
   empty.style.display=hasData?"none":"";
@@ -498,9 +516,9 @@ function renderChart(s){
     g+=`<line class="grid" x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}"/>`;
     g+=`<text x="${padL-6}" y="${y+3}" text-anchor="end">${fmtN(max*i/4)}</text>`;
   }
-  const step=Math.max(1,Math.ceil(n/10));                    // sparse x labels
+  const step=DAYS===1?3:Math.max(1,Math.ceil(n/10));         // sparse x labels (every 3h on 24h view)
   days.forEach((d,i)=>{
-    if(i%step===0) g+=`<text x="${padL+slot*i+slot/2}" y="${H-6}" text-anchor="middle">${esc((d.day||"").slice(5))}</text>`;
+    if(i%step===0) g+=`<text x="${padL+slot*i+slot/2}" y="${H-6}" text-anchor="middle">${esc(d.lbl??(d.day||"").slice(5))}</text>`;
   });
   days.forEach((d,i)=>{
     const x=padL+slot*i+(slot-bw)/2; let y=padT+ih;

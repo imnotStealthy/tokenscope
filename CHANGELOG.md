@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a yellow `vX.Y.Z ↗` pill in the header when a newer version exists. (`desktop/web.py`)
 - **Sortable project & model tables** — click a column header to cycle desc → asc →
   default order. (`desktop/web.py`)
+- **Hourly chart on the 24h range.** Selecting `24h` plots the current local day hour
+  by hour (x-axis `12AM…11PM` in EN, `0h…23h` in FR, labels every 3h) from a new
+  `by_hour` bucket in the local summary. (`backend/local_sources.py`, `desktop/web.py`)
 - **Collapsible tray popup sections.** Claude and Codex (+Spark) groups fold via their
   headers; state persists across opens and the popup window refits. (`desktop/web.py`)
 
