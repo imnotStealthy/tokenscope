@@ -557,11 +557,21 @@ def _fetch_claude_oauth_limits() -> List[dict]:
         body = resp.json()
     except Exception:  # network/json errors must never crash the endpoint
         return []
+    # Buckets are parsed dynamically because Anthropic renames the model-specific
+    # weekly window over time (seven_day_sonnet -> seven_day_opus -> Fable, ...).
+    known = {"five_hour": "5h", "seven_day": "All"}
     out = []
-    for key, label in (("five_hour", "5h"), ("seven_day", "All"), ("seven_day_sonnet", "Sonnet only")):
-        bk = body.get(key)
+    for key, bk in body.items():
+        if not isinstance(bk, dict):
+            continue
         pct = _extract_oauth_percent(bk)
         if pct is None:
+            continue
+        if key in known:
+            label = known[key]
+        elif key.startswith("seven_day_"):
+            label = key[len("seven_day_"):].replace("_", " ").title() + " only"
+        else:
             continue
         out.append({"label": label, "used_percent": pct,
                     "reset": _reset_to_iso(bk.get("resets_at") or bk.get("reset_at"))})
@@ -690,8 +700,8 @@ def read_claude_utilization() -> dict:
             else:
                 limits = _read_tokenscope_limits_cache()
                 source = "cache" if limits else "none"
-        order = {"5h": 0, "All": 1, "Sonnet only": 2}
-        limits = sorted(limits, key=lambda e: order.get(e.get("label"), 9))
+        order = {"5h": 0, "All": 1}
+        limits = sorted(limits, key=lambda e: (order.get(e.get("label"), 9), str(e.get("label") or "")))
     return {
         "available": bool(limits),
         "mode": mode,            # subscription | api | none

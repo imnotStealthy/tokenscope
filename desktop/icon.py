@@ -5,7 +5,9 @@ control-room aesthetic. Run this module directly to (re)generate tokenscope.ico/
 """
 
 
-def make_icon(size=256):
+def make_icon(size=256, badge=None):
+    """badge: None | 'warn' | 'bad' — colored dot (top-right) showing quota pressure
+    so the tray icon itself signals when a subscription window is nearly exhausted."""
     from PIL import Image, ImageDraw
 
     S = 256
@@ -28,6 +30,10 @@ def make_icon(size=256):
     for h, c in zip(heights, cols):
         d.rounded_rectangle([x, base_y - h, x + bw, base_y], radius=7, fill=c)
         x += bw + gap
+
+    if badge:
+        col = (255, 59, 48, 255) if badge == "bad" else (255, 204, 0, 255)
+        d.ellipse([S - 86, 22, S - 22, 86], fill=col, outline=(0, 0, 0, 255), width=8)
 
     if size != S:
         img = img.resize((size, size), Image.LANCZOS)

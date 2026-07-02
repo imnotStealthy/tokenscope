@@ -209,6 +209,38 @@ class Win32Tray:
             u.TranslateMessage(ctypes.byref(msg))
             u.DispatchMessageW(ctypes.byref(msg))
 
+    def set_icon(self, image):
+        """Swap the tray icon at runtime (quota badge)."""
+        import ctypes
+
+        self._image = image
+        if self._nid is None or self._shell is None:
+            return
+        try:
+            h = self._hicon()
+            if h:
+                self._nid.hIcon = h
+                self._shell.Shell_NotifyIconW(1, ctypes.byref(self._nid))  # NIM_MODIFY
+        except Exception:
+            pass
+
+    def notify(self, title, msg):
+        """Show a Windows balloon/toast notification from the tray icon."""
+        import ctypes
+
+        if self._nid is None or self._shell is None:
+            return
+        try:
+            NIF_INFO = 0x10
+            self._nid.uFlags |= NIF_INFO
+            self._nid.szInfoTitle = (title or "")[:63]
+            self._nid.szInfo = (msg or "")[:255]
+            self._nid.dwInfoFlags = 1  # NIIF_INFO
+            self._shell.Shell_NotifyIconW(1, ctypes.byref(self._nid))  # NIM_MODIFY
+            self._nid.uFlags &= ~NIF_INFO
+        except Exception:
+            pass
+
     def _update_tip(self):
         import ctypes
 
@@ -319,19 +351,56 @@ def _apply_titlebar_theme(hwnd, theme="dark"):
 
 
 def _title_loop(icon):
-    import local_sources as ls
+    """Refresh the tray tooltip, fire quota alerts, and badge the icon by pressure.
 
+    Alerts use hysteresis (alert at >=90% used / <=10% left, re-arm below 85% / above 15%)
+    so a window hovering at the threshold does not spam notifications."""
+    import local_sources as ls
+    from icon import make_icon
+
+    alerted = set()
+    badge_last = "unset"
     while True:
         try:
             u = ls.read_local_utilization()
             parts = ["TokenScope"]
+            worst = 0.0
             for limit in (u.get("claude") or {}).get("limits", []):
-                if limit.get("label") == "5h" and limit.get("used_percent") is not None:
-                    parts.append(f"C 5h {round(limit['used_percent'])}%")
+                p = limit.get("used_percent")
+                if p is None:
+                    continue
+                lbl = limit.get("label") or "?"
+                if lbl == "5h":
+                    parts.append(f"C 5h {round(p)}%")
+                worst = max(worst, p)
+                key = f"claude:{lbl}"
+                if p >= 90 and key not in alerted:
+                    alerted.add(key)
+                    icon.notify("TokenScope — Claude", f"'{lbl}' window at {round(p)}% used")
+                elif p < 85:
+                    alerted.discard(key)
             cx = u.get("codex") or {}
-            if cx.get("primary") and cx["primary"].get("used_percent") is not None:
-                parts.append(f"X 5h {round(cx['primary']['used_percent'])}%")
+            for key, lbl in (("primary", "5h"), ("secondary", "weekly"),
+                             ("spark_primary", "Spark 5h"), ("spark_secondary", "Spark weekly")):
+                lim = cx.get(key)
+                if not lim or lim.get("used_percent") is None:
+                    continue
+                used = lim["used_percent"]
+                rem = 100 - used
+                if key == "primary":
+                    parts.append(f"X 5h {round(used)}%")
+                worst = max(worst, used)
+                akey = f"codex:{key}"
+                if rem <= 10 and akey not in alerted:
+                    alerted.add(akey)
+                    icon.notify("TokenScope — Codex", f"'{lbl}' window: {round(rem)}% left")
+                elif rem > 15:
+                    alerted.discard(akey)
             icon.title = " · ".join(parts)[:127]
+            badge = "bad" if worst >= 90 else "warn" if worst >= 75 else None
+            if badge != badge_last:
+                badge_last = badge
+                icon.set_icon(make_icon(64, badge=badge))
         except Exception:
             pass
         time.sleep(60)
@@ -375,7 +444,7 @@ def run():
     # never navigating the dashboard window away.
     try:
         webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
-        webview.settings["ALLOW_DOWNLOADS"] = False
+        webview.settings["ALLOW_DOWNLOADS"] = True  # needed for the CSV/JSON export buttons
     except Exception:
         pass
 

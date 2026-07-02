@@ -4,6 +4,42 @@ All notable changes to TokenScope are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-07-02
+
+### Added
+
+- **`// tokens_over_time` chart in the desktop dashboard.** Dependency-free stacked-bar
+  SVG per day and per tool (Claude / Codex / Antigravity) with a green daily-cost line
+  overlay on its own scale, hover tooltip (per-tool breakdown, total, cost), sparse
+  axis labels, missing days filled for ranges ≤ 90d. Theme-aware, collapsible, i18n
+  EN/FR, re-renders on tool/range/lang change and window resize. (`desktop/web.py`)
+- **Quota alert notifications.** Windows balloon/toast from the tray icon when a Claude
+  window reaches ≥ 90% used or a Codex/Spark window drops to ≤ 10% left, with hysteresis
+  (re-arms below 85% / above 15%) so a window hovering at the threshold doesn't spam.
+  (`desktop/tray.py`)
+- **Dynamic tray icon badge.** The tray icon gains a yellow dot at ≥ 75% and a red dot at
+  ≥ 90% quota pressure across all monitored windows. (`desktop/icon.py`, `desktop/tray.py`)
+- **CSV / JSON export.** Header buttons download the currently loaded summary (per-day,
+  per-project, per-model) as `tokenscope_<range>_<date>.csv/json`. (`desktop/web.py`,
+  `desktop/tray.py` enables WebView2 downloads)
+- **Update check.** The dashboard queries the latest GitHub release (cached 6h) and shows
+  a yellow `vX.Y.Z ↗` pill in the header when a newer version exists. (`desktop/web.py`)
+- **Sortable project & model tables** — click a column header to cycle desc → asc →
+  default order. (`desktop/web.py`)
+- **Collapsible tray popup sections.** Claude and Codex (+Spark) groups fold via their
+  headers; state persists across opens and the popup window refits. (`desktop/web.py`)
+
+### Changed
+
+- **Claude subscription limit windows are parsed dynamically** (`five_hour` → `5h`,
+  `seven_day` → `All`, any `seven_day_<model>` → `<Model> only`), so renamed
+  model-specific weekly windows (e.g. the new Fable window) appear without a code
+  change; the tray popup renders whatever rows the API returns. (`backend/local_sources.py`,
+  `desktop/web.py`)
+- Tray popup row labels widened (74 → 86px) so "Weekly (All)" no longer truncates;
+  utilization card separators now follow the theme instead of a hardcoded dark color.
+  (`desktop/web.py`)
+
 ## [1.2.0] - 2026-06-30
 
 ### Added
