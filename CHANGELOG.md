@@ -6,20 +6,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-07
+
 ### Added
 
-- **macOS app.** `TokenScope.app` — the same local server + dashboard in a native
-  WKWebView window (`desktop/macos.py`, `desktop/tokenscope-macos.spec`), built by a
-  new GitHub Actions workflow (`.github/workflows/build-macos.yml`) on every `v*` tag
-  and attached to the release as `TokenScope-macos.zip`. The tray icon, quota toasts
-  and tray popup remain Windows-only. Antigravity state and the theme file now resolve
-  to their macOS locations (`~/Library/Application Support/...`).
+- **macOS app with the full menu bar tray.** `TokenScope.app` — the same local server
+  + dashboard in a native window, plus an `NSStatusItem` in the menu bar opening the
+  same styled `/tray` popup as Windows (frameless pywebview window: usage limits,
+  Show TokenScope, Quit, dismiss on blur/Escape). Closing the main window hides it to
+  the menu bar; "Start at Login" installs a user LaunchAgent
+  (`~/Library/LaunchAgents/com.stealthy.tokenscope.plist`). Built locally with
+  `desktop/build_macos.sh` and in CI by `.github/workflows/build-macos.yml` on every
+  `v*` tag, attached to the release as `TokenScope-macos.zip`.
+  (`desktop/tray.py`, `desktop/tokenscope-macos.spec`)
+- **Windows exe built in CI.** A new `.github/workflows/build-windows.yml` workflow
+  builds `dist/TokenScope.exe` (PyInstaller, `desktop/tokenscope-tray.spec`) on every
+  `v*` tag and attaches it to the release.
 - **macOS code signing + notarization.** When the Apple signing secrets are configured
   (`MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`, `APPLE_ID`, `APPLE_TEAM_ID`,
   `APPLE_APP_PASSWORD`), CI signs `TokenScope.app` with a Developer ID certificate
   (hardened runtime, `desktop/entitlements.plist`), notarizes it with Apple and staples
   the ticket, so downloads pass Gatekeeper cleanly. Without the secrets it falls back
   to an ad-hoc signature. (`.github/workflows/build-macos.yml`)
+
+### Fixed
+
+- **macOS tray popup crash + freeze.** The popup window was created off-screen
+  (`x=-4000`), which aborts pywebview's Cocoa window init (`window.screen()` is
+  `None`), and the status-item click handler called `evaluate_js` on the AppKit main
+  thread, deadlocking the app. The popup is now created hidden on-screen and driven
+  through its native `NSWindow`. Quit also destroys the popup window so the process
+  actually exits. (`desktop/tray.py`)
+- **macOS popup edge ring.** The popup window is transparent + borderless so macOS no
+  longer draws a light 1px frame around the rounded card. (`desktop/tray.py`)
 
 ## [1.3.1] - 2026-07-02
 
