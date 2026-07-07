@@ -291,7 +291,7 @@ INDEX_HTML = r"""<!doctype html>
 </div>
 
 <script>
-const APP_VERSION="1.3.0", REPO="imnotStealthy/tokenscope";
+const APP_VERSION="1.3.1", REPO="imnotStealthy/tokenscope";
 const TOOL_LABEL={claude_api:"Claude",codex:"Codex",antigravity:"Antigravity"};
 let DAYS=30, TOOL="", LAST_S=null, LAST_U=null, LOADING=false;
 const SORT={proj:{k:null,dir:-1}, mdl:{k:null,dir:-1}};
@@ -464,13 +464,33 @@ function renderSummary(s){
 
 // --- tokens_over_time: dependency-free stacked-bar SVG, theme-aware via CSS vars ---
 const CHART_TOOLS=[["claude_api","var(--cClaude)"],["codex","var(--cCodex)"],["antigravity","var(--cAg)"]];
-function chartDays(byday){
-  const map={}; (byday||[]).forEach(d=>{ if(d.day) map[d.day]=d; });
-  if(DAYS>90){ return (byday||[]).filter(d=>d.day); }        // lifetime: real days only
+// Hour label for the 24h view: FR "0h..23h", EN "12AM..11PM".
+function hourLabel(h){
+  if(LANG==="fr") return h+"h";
+  return h===0?"12AM":h<12?h+"AM":h===12?"12PM":(h-12)+"PM";
+}
+// Backend day keys are LOCAL days; format Dates the same way (never toISOString = UTC).
+function localDay(d){const p=v=>String(v).padStart(2,"0");return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;}
+function chartDays(s){
+  const byday=(s&&s.by_day)||[];
+  if(DAYS===1){                                              // 24h: current LOCAL day, hour by hour
+    const map={}; ((s&&s.by_hour)||[]).forEach(h=>{ if(h.hour) map[h.hour]=h; });
+    const now=new Date(), p=v=>String(v).padStart(2,"0");
+    const dk=localDay(now);
+    const out=[];
+    for(let h=0;h<24;h++){
+      const d=map[`${dk}T${p(h)}`]||{claude_api:0,codex:0,antigravity:0,cost_usd:0};
+      out.push({...d, day:`${dk} · ${hourLabel(h)}`, lbl:hourLabel(h)});
+    }
+    return out;
+  }
+  const map={}; byday.forEach(d=>{ if(d.day) map[d.day]=d; });
+  const mk=d=>({...d, lbl:(d.day||"").slice(5)});
+  if(DAYS>90){ return byday.filter(d=>d.day).map(mk); }      // lifetime: real days only
   const out=[], now=Date.now();
   for(let i=DAYS-1;i>=0;i--){
-    const day=new Date(now-i*864e5).toISOString().slice(0,10);
-    out.push(map[day]||{day, claude_api:0, codex:0, antigravity:0, cost_usd:0});
+    const day=localDay(new Date(now-i*864e5));
+    out.push(mk(map[day]||{day, claude_api:0, codex:0, antigravity:0, cost_usd:0}));
   }
   return out;
 }
@@ -482,7 +502,7 @@ function renderChart(s){
   const tools=TOOL?CHART_TOOLS.filter(x=>x[0]===TOOL):CHART_TOOLS;
   legend.innerHTML=tools.map(([k,c])=>`<span class="li"><span class="sw" style="background:${c}"></span>${esc(TOOL_LABEL[k]||k)}</span>`).join("")
     +`<span class="li"><span class="sw" style="background:#22c55e"></span>${esc(t("tt_cost"))} $</span>`;
-  const days=chartDays(s&&s.by_day);
+  const days=chartDays(s);
   const hasData=days.some(d=>tools.some(([k])=>(d[k]||0)>0));
   svg.style.display=hasData?"":"none";
   empty.style.display=hasData?"none":"";
@@ -498,9 +518,9 @@ function renderChart(s){
     g+=`<line class="grid" x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}"/>`;
     g+=`<text x="${padL-6}" y="${y+3}" text-anchor="end">${fmtN(max*i/4)}</text>`;
   }
-  const step=Math.max(1,Math.ceil(n/10));                    // sparse x labels
+  const step=DAYS===1?3:Math.max(1,Math.ceil(n/10));         // sparse x labels (every 3h on 24h view)
   days.forEach((d,i)=>{
-    if(i%step===0) g+=`<text x="${padL+slot*i+slot/2}" y="${H-6}" text-anchor="middle">${esc((d.day||"").slice(5))}</text>`;
+    if(i%step===0) g+=`<text x="${padL+slot*i+slot/2}" y="${H-6}" text-anchor="middle">${esc(d.lbl??(d.day||"").slice(5))}</text>`;
   });
   days.forEach((d,i)=>{
     const x=padL+slot*i+(slot-bw)/2; let y=padT+ih;
@@ -633,9 +653,11 @@ function budBar(label,spend,cap){
   const over=spend>cap?t("over",{x:fmtC(spend-cap)}):"";
   return `<div class="b5"><div class="barhd"><span>${esc(label)}</span><span class="p">${fmtC(spend)} / ${fmtC(cap)}${esc(over)}</span></div><div class="bar ${cls}"><i style="width:${pct}%"></i></div></div>`;
 }
-function renderBudget(s,u){
-  const byday=(s&&s.by_day)||[];
-  const today=new Date().toISOString().slice(0,10), month=today.slice(0,7);
+// Budget bars use bs: a dedicated UNFILTERED 31-day summary — the main summary is
+// range/tool-filtered and silently under-reported monthly spend (e.g. 7d range).
+function renderBudget(bs,u){
+  const byday=(bs&&bs.by_day)||[];
+  const today=localDay(new Date()), month=today.slice(0,7);
   let td=0, mo=0;
   byday.forEach(d=>{ if(d.day===today) td+=d.cost_usd||0; if((d.day||"").startsWith(month)) mo+=d.cost_usd||0; });
   const dCap=getBud(LS_D,10), mCap=getBud(LS_M,200);
@@ -647,24 +669,31 @@ function renderBudget(s,u){
   if(document.activeElement!==mi) mi.value=mCap;
 }
 
+let LOAD_SEQ=0, LAST_B=null;
+function okJson(r){ if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); }
 async function load(){
+  const my=++LOAD_SEQ;  // drop stale responses: a slow "life" fetch must not overwrite a newer range
   LOADING=true;
   document.getElementById("dot").className="dot busy";
   document.getElementById("status").textContent=t("loading",{r:rangeLabel(DAYS)});
   try{
-    const [sr,ur]=await Promise.all([
-      fetch("/api/local/summary?days="+DAYS+(TOOL?"&tool="+TOOL:"")).then(r=>r.json()),
-      fetch("/api/local/utilization").then(r=>r.json()).catch(()=>null),
+    const [sr,ur,br]=await Promise.all([
+      fetch("/api/local/summary?days="+DAYS+(TOOL?"&tool="+TOOL:"")).then(okJson),
+      fetch("/api/local/utilization").then(okJson).catch(()=>null),
+      fetch("/api/local/summary?days=31").then(okJson).catch(()=>null),  // budget: unfiltered month
     ]);
-    LAST_S=sr; LAST_U=ur;
-    renderSummary(sr); renderChart(sr); renderUtil(ur); renderBudget(sr,ur);
+    if(my!==LOAD_SEQ) return;
+    if(sr&&sr.error) throw new Error(sr.error);
+    LAST_S=sr; LAST_U=ur; LAST_B=br;
+    renderSummary(sr); renderChart(sr); renderUtil(ur); renderBudget(br,ur);
     document.getElementById("dot").className="dot ok";
     setStatus();
   }catch(e){
+    if(my!==LOAD_SEQ) return;
     document.getElementById("dot").className="dot";
     document.getElementById("status").textContent=t("error",{m:e.message});
   }finally{
-    LOADING=false;
+    if(my===LOAD_SEQ) LOADING=false;
   }
 }
 
@@ -677,7 +706,7 @@ document.getElementById("range").addEventListener("click",e=>{
 ["bud-daily","bud-monthly"].forEach((id,i)=>{
   document.getElementById(id).addEventListener("input",e=>{
     localStorage.setItem(i===0?LS_D:LS_M, e.target.value);
-    renderBudget(LAST_S, LAST_U);
+    renderBudget(LAST_B, LAST_U);
   });
 });
 document.getElementById("tool").addEventListener("click",e=>{
@@ -691,7 +720,7 @@ document.getElementById("lang").addEventListener("click",e=>{
   LANG=b.dataset.l; localStorage.setItem("tokenscope.lang",LANG);
   document.querySelectorAll("#lang button").forEach(x=>x.classList.toggle("active",x===b));
   applyStatic();
-  if(LAST_S){renderSummary(LAST_S); renderChart(LAST_S); renderBudget(LAST_S,LAST_U);}
+  if(LAST_S){renderSummary(LAST_S); renderChart(LAST_S); renderBudget(LAST_B,LAST_U);}
   if(LAST_U) renderUtil(LAST_U);
   if(!LOADING) setStatus();
 });
@@ -817,10 +846,11 @@ TRAY_HTML = r"""<!doctype html>
 <script>
 const ICON_CLOCK='<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>';
 function call(name){ try{ window.pywebview.api[name](); }catch(e){} }
+function esc(s){ return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function _bar(label, pct, value, cls){
   const w = pct==null?0:Math.max(0,Math.min(100,pct));
-  return `<div class="row">${ICON_CLOCK}<span class="rl">${label}</span>`+
-         `<span class="bar ${cls}"><i style="width:${w}%"></i></span><span class="rv">${value}</span></div>`;
+  return `<div class="row">${ICON_CLOCK}<span class="rl">${esc(label)}</span>`+
+         `<span class="bar ${cls}"><i style="width:${w}%"></i></span><span class="rv">${esc(value)}</span></div>`;
 }
 // Codex: bar = remaining, red when low (matches the dashboard's barRemain).
 function row(label, leftPct){
