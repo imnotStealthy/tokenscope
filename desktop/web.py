@@ -806,7 +806,7 @@ TRAY_HTML = r"""<!doctype html>
   <div class="sep"></div>
   <button class="item" onclick="toggleStartup()">
     <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 3v11m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
-    <span class="lab">Start with Windows</span>
+    <span class="lab" id="startup-label">Start with Windows</span>
     <svg class="chk" id="chk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12l5 5L20 6"/></svg>
   </button>
   <button class="item danger" onclick="call('quit_app')">
@@ -852,6 +852,9 @@ async function refreshTray(){
   document.getElementById("spark").innerHTML =
     row("5h",codexLeft(cx,"spark_primary"))+row("Weekly",codexLeft(cx,"spark_secondary"));
   try{
+    if(window.pywebview.api.startup_label){
+      document.getElementById("startup-label").textContent = await window.pywebview.api.startup_label();
+    }
     const on = await window.pywebview.api.startup_enabled();
     document.getElementById("chk").classList.toggle("on",!!on);
   }catch(e){}
