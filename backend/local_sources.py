@@ -184,7 +184,9 @@ _FILE_CACHE: Dict[str, Tuple[float, List[dict]]] = {}
 
 def _make_event(tool, model, cwd, ts: Optional[datetime], inp, out, cread, ccreate, cost) -> dict:
     proj = _norm_path(cwd) if cwd else "unassigned"
-    day = ts.astimezone(timezone.utc).strftime("%Y-%m-%d") if ts else ""
+    # LOCAL day, consistent with the hourly buckets (aggregate) and the dashboard's
+    # "today"/chart gap-fill — a UTC day key put evening usage on the next day's bar.
+    day = ts.astimezone().strftime("%Y-%m-%d") if ts else ""
     return {
         "tool": tool,
         "model": model or "unknown",
@@ -204,6 +206,7 @@ def _make_event(tool, model, cwd, ts: Optional[datetime], inp, out, cread, ccrea
 def _parse_claude_file(path: str) -> List[dict]:
     events: List[dict] = []
     file_cwd: Optional[str] = None
+    seen_msgs: set = set()  # Claude Code repeats message.usage on every content-block line
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             for line in fh:
@@ -227,6 +230,12 @@ def _parse_claude_file(path: str) -> List[dict]:
                 usage = msg.get("usage")
                 if not isinstance(usage, dict):
                     continue
+                msg_id = msg.get("id")
+                dk = f"{msg_id}\x00{o.get('requestId')}" if msg_id else None
+                if dk is not None:
+                    if dk in seen_msgs:
+                        continue
+                    seen_msgs.add(dk)
                 model = msg.get("model")
                 inp = usage.get("input_tokens", 0) or 0
                 out = usage.get("output_tokens", 0) or 0
@@ -252,9 +261,10 @@ def _parse_claude_file(path: str) -> List[dict]:
                     * in_rate
                 )
                 ts = _parse_ts(o.get("timestamp"))
-                events.append(
-                    _make_event("claude_api", model, cwd or file_cwd, ts, inp, out, cread, ccreate, cost)
-                )
+                ev = _make_event("claude_api", model, cwd or file_cwd, ts, inp, out, cread, ccreate, cost)
+                if dk is not None:
+                    ev["dk"] = dk  # resumed sessions replay messages into new files: dedup across files
+                events.append(ev)
     except (OSError, ValueError, OverflowError):
         return []
     return events
@@ -272,7 +282,7 @@ def _read_codex_config_model() -> Optional[str]:
         s = raw.strip()
         if s.startswith("["):  # entered a table; stop scanning top-level keys
             break
-        if s.startswith("model") and "=" in s:
+        if re.match(r"^model\s*=", s):  # exact key: `model_provider = ...` must not match
             val = s.split("=", 1)[1].strip().strip('"').strip("'")
             if val:
                 return val
@@ -374,7 +384,19 @@ _MTIME_MARGIN_S = 86400
 
 def read_claude_events(days: int) -> List[dict]:
     cutoff_ts = time.time() - days * 86400 - _MTIME_MARGIN_S
-    return _collect_events(claude_dir() / "projects", "**/*.jsonl", _parse_claude_file, cutoff_ts)
+    events = _collect_events(claude_dir() / "projects", "**/*.jsonl", _parse_claude_file, cutoff_ts)
+    # Resumed sessions replay old messages into new transcript files with identical
+    # usage: keep the first occurrence of each (message.id, requestId) across files.
+    seen: set = set()
+    out: List[dict] = []
+    for ev in events:
+        dk = ev.get("dk")
+        if dk is not None:
+            if dk in seen:
+                continue
+            seen.add(dk)
+        out.append(ev)
+    return out
 
 
 def read_codex_events(days: int) -> List[dict]:
@@ -1036,15 +1058,43 @@ def _ag_workspace(blob: bytes) -> Optional[str]:
     return re.sub(r"^file:/+", "", uri)  # file:///d:/path -> d:/path
 
 
+def _ag_snapshot_db(path: str):
+    """Copy a (possibly live) Antigravity SQLite DB plus its -wal/-shm sidecars to a temp
+    dir and return (tmpdir, copy_path). immutable=1 on a changing file is undefined
+    behavior and never sees WAL content; reading a private copy is safe and complete."""
+    import shutil
+    import tempfile
+
+    tmpdir = tempfile.mkdtemp(prefix="tokenscope-ag-")
+    dst = os.path.join(tmpdir, os.path.basename(path))
+    shutil.copy2(path, dst)
+    for suffix in ("-wal", "-shm"):
+        side = path + suffix
+        if os.path.exists(side):
+            try:
+                shutil.copy2(side, dst + suffix)
+            except OSError:
+                pass
+    return tmpdir, dst
+
+
 def _parse_antigravity_db(path: str, _unused=None) -> List[dict]:
+    import shutil
     import sqlite3
     try:
         mtime_fallback = os.path.getmtime(path)
     except OSError:
         mtime_fallback = None
     try:
-        con = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True)
+        tmpdir, snap = _ag_snapshot_db(path)
+    except OSError:
+        return []
+    try:
+        # Plain connect (not ro): SQLite may need to recover the copied WAL, which
+        # requires write access. The copy is private, so this is harmless.
+        con = sqlite3.connect(snap)
     except sqlite3.Error:
+        shutil.rmtree(tmpdir, ignore_errors=True)
         return []
     events: List[dict] = []
     try:
@@ -1082,6 +1132,7 @@ def _parse_antigravity_db(path: str, _unused=None) -> List[dict]:
         pass
     finally:
         con.close()
+        shutil.rmtree(tmpdir, ignore_errors=True)
     return events
 
 
