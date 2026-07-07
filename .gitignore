@@ -93,3 +93,5 @@ credentials.json
 # Agent / local-only memory (never commit)
 REMNANT.md
 CLAUDE.md
+desktop/icon.iconset/
+desktop/tokenscope.icns

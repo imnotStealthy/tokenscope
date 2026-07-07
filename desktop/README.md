@@ -33,7 +33,37 @@ build.bat
 This creates a venv, installs `requirements.txt` + PyInstaller, and produces
 `dist\TokenScope.exe` (single file, no console window).
 
-## Build it yourself on macOS
+## macOS app
+
+A native macOS build (`TokenScope.app`) is produced by the
+`.github/workflows/build-macos.yml` GitHub Actions workflow on every `v*` tag and
+attached to the release as `TokenScope-macos.zip`. It runs the same server and
+dashboard in a native window, adds a menu bar status item showing the same styled
+usage popup as Windows (`tray.py` + `tokenscope-macos.spec`), and closing the
+window hides it to the menu bar. "Start at Login" installs a user LaunchAgent
+(`~/Library/LaunchAgents/com.stealthy.tokenscope.plist`).
+
+### Signing & notarization
+
+If these repository secrets are set, CI signs the app with a **Developer ID
+Application** certificate (hardened runtime + `entitlements.plist`), submits it to
+Apple for **notarization** and staples the ticket — downloads then pass Gatekeeper
+with no malware warning:
+
+| Secret | Value |
+|---|---|
+| `MACOS_CERT_P12` | base64 of the "Developer ID Application" certificate exported as `.p12` |
+| `MACOS_CERT_PASSWORD` | password of that `.p12` |
+| `APPLE_TEAM_ID` | 10-char team ID (Apple Developer → Membership) |
+| `APPLE_ID` | Apple ID email used for notarization |
+| `APPLE_APP_PASSWORD` | app-specific password (appleid.apple.com → Sign-In & Security) |
+
+This requires a paid Apple Developer account. Without the secrets, CI falls back to
+an **ad-hoc** signature: the app runs, but on first launch users must right-click
+`TokenScope.app` → **Open** (or allow it under *System Settings → Privacy &
+Security*).
+
+To build locally on a Mac:
 
 ```bash
 cd desktop
@@ -41,12 +71,8 @@ cd desktop
 open dist/TokenScope.app
 ```
 
-This creates a venv, installs `requirements.txt` + PyInstaller, and produces
-`dist/TokenScope.app`.
-
-The macOS app opens the same native dashboard window and local-only server, adds a
-menu bar status item, and shows the same styled usage popup as Windows. Closing the
-window hides it to the menu bar item.
+This creates a venv, installs `requirements.txt` + PyInstaller, generates the
+`.icns` icon and produces `dist/TokenScope.app`.
 
 ## Run without building (dev)
 
@@ -68,11 +94,12 @@ cd desktop
 
 | File | Role |
 |---|---|
-| `tray.py` | native window (pywebview) + system-tray icon + menu |
+| `tray.py` | Windows & macOS: native window (pywebview) + tray / menu bar icon + styled popup |
+| `macos.py` | legacy macOS window-only entry (superseded by `tray.py`) |
 | `server.py` | stdlib HTTP server: `/` (dashboard) + `/api/local/{summary,utilization,status}` |
 | `web.py` | embedded single-file HTML/JS dashboard |
-| `tokenscope-tray.spec` | PyInstaller build config |
-| `tokenscope-macos.spec` | macOS PyInstaller app bundle config |
+| `tokenscope-tray.spec` | PyInstaller build config (Windows .exe) |
+| `tokenscope-macos.spec` | PyInstaller build config (macOS .app, also built in CI) |
 | `build.bat` / `run-dev.bat` | Windows build / dev-run helpers |
 | `build_macos.sh` / `run-dev-macos.sh` | macOS build / dev-run helpers |
 

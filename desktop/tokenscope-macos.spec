@@ -1,6 +1,7 @@
-# PyInstaller spec for the TokenScope macOS app bundle.
-# Build: ./build_macos.sh
-# Output: dist/TokenScope.app
+# PyInstaller spec for the TokenScope macOS app bundle (menu bar tray + native window).
+# Build locally: ./build_macos.sh   Output: dist/TokenScope.app
+# Also built in CI by .github/workflows/build-macos.yml, which generates
+# tokenscope.icns from icon.py before invoking PyInstaller.
 
 import os
 
@@ -15,24 +16,24 @@ hiddenimports = [
     "web",
     "icon",
     "requests",
-    "jwt",
+    "jwt",                 # pyjwt (imported lazily inside local_sources)
     "webview",
     "webview.platforms.cocoa",
     "PyObjCTools.AppHelper",
 ]
 
-for _pkg in ("webview",):
-    try:
-        d, b, h = collect_all(_pkg)
-        datas += d
-        binaries += b
-        hiddenimports += h
-    except Exception:
-        pass
+# Bundle pywebview's data/binaries/hidden imports (JS bridge, platform backends).
+try:
+    d, b, h = collect_all("webview")
+    datas += d
+    binaries += b
+    hiddenimports += h
+except Exception:
+    pass
 
 a = Analysis(
     ["tray.py"],
-    pathex=[".", "../backend"],
+    pathex=[".", "../backend"],          # so `local_sources` and `web` resolve
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -50,13 +51,13 @@ exe = EXE(
     pyz,
     a.scripts,
     [],
-    exclude_binaries=True,
+    exclude_binaries=True,               # onedir: the .app bundle carries the libs
     name="TokenScope",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    console=False,
+    upx=False,                           # UPX breaks codesigning/notarization
+    console=False,                       # GUI app: no terminal window
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
@@ -69,8 +70,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
-    upx_exclude=[],
+    upx=False,
     name="TokenScope",
 )
 
@@ -78,14 +78,12 @@ app = BUNDLE(
     coll,
     name="TokenScope.app",
     icon="tokenscope.icns" if os.path.exists("tokenscope.icns") else None,
-    bundle_identifier="com.stealthy.tokenscope",
+    bundle_identifier="eu.stealthylabs.tokenscope",
     info_plist={
         "CFBundleName": "TokenScope",
         "CFBundleDisplayName": "TokenScope",
-        "CFBundleShortVersionString": "1.0.0",
-        "CFBundleVersion": "1",
-        "LSMinimumSystemVersion": "12.0",
         "NSHighResolutionCapable": True,
         "NSRequiresAquaSystemAppearance": False,
+        "LSMinimumSystemVersion": "11.0",
     },
 )

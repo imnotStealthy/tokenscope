@@ -277,10 +277,18 @@ class Win32Tray:
         if self._nid is None or self._shell is None:
             return
         try:
+            from ctypes import wintypes
+
             h = self._hicon()
             if h:
+                old = self._nid.hIcon
                 self._nid.hIcon = h
                 self._shell.Shell_NotifyIconW(1, ctypes.byref(self._nid))  # NIM_MODIFY
+                if old:
+                    # free the replaced HICON or every badge flip leaks a USER handle
+                    u = ctypes.windll.user32
+                    u.DestroyIcon.argtypes = [wintypes.HICON]
+                    u.DestroyIcon(old)
         except Exception:
             pass
 
@@ -334,13 +342,16 @@ def _acquire_single_instance():
         import ctypes
         from ctypes import wintypes
 
-        kernel32 = ctypes.windll.kernel32
+        # use_last_error=True: ctypes.windll's GetLastError can be clobbered by ctypes'
+        # own Win32 calls between CreateMutexW and the check -> intermittent double launch.
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel32.CreateMutexW.restype = wintypes.HANDLE
+        kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
         kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
         handle = kernel32.CreateMutexW(None, False, "Local\\TokenScopeDesktopSingleInstance")
         if not handle:
             return True
-        if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
             kernel32.CloseHandle(handle)
             return False
         _INSTANCE_MUTEX = handle
@@ -742,11 +753,12 @@ def _run_windows():
         return u, wintypes
 
     def _set_toolwindow(hwnd):
-        """Keep the popup out of the taskbar / alt-tab (WS_EX_TOOLWINDOW)."""
+        """Keep the popup out of the taskbar / alt-tab: set WS_EX_TOOLWINDOW and clear
+        WS_EX_APPWINDOW (WinForms sets it, and it forces a taskbar button anyway)."""
         try:
             u, _ = _user32()
             ex = u.GetWindowLongW(hwnd, -20)  # GWL_EXSTYLE
-            u.SetWindowLongW(hwnd, -20, ex | 0x00000080)  # WS_EX_TOOLWINDOW
+            u.SetWindowLongW(hwnd, -20, (ex | 0x00000080) & ~0x00040000)
         except Exception:
             pass
 
@@ -977,6 +989,13 @@ def _run_windows():
         if icon is not None and not state["quit"]:
             window.hide()
             return False
+        # No tray icon: destroy the hidden popup too, or pywebview's loop keeps
+        # running on it and the process lingers invisibly holding the port.
+        state["quit"] = True
+        try:
+            popup.destroy()
+        except Exception:
+            pass
         return True
 
     try:
