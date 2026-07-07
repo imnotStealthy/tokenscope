@@ -25,7 +25,12 @@ from web import INDEX_HTML, TRAY_HTML  # noqa: E402
 
 PREFERRED_PORT = 8765
 _VALID_TOOLS = ("claude_api", "codex", "antigravity")
-_STATE_DIR = os.path.join(os.getenv("LOCALAPPDATA") or _HERE, "TokenScope")
+if sys.platform == "darwin":
+    _STATE_DIR = os.path.expanduser("~/Library/Application Support/TokenScope")
+elif os.name == "nt":
+    _STATE_DIR = os.path.join(os.getenv("LOCALAPPDATA") or _HERE, "TokenScope")
+else:
+    _STATE_DIR = os.path.join(os.getenv("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "TokenScope")
 _THEME_FILE = os.path.join(_STATE_DIR, "theme.json")
 _THEME_LOCK = threading.Lock()
 

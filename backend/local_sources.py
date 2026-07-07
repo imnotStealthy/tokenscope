@@ -25,6 +25,7 @@ import logging
 import math
 import os
 import re
+import sys
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -927,6 +928,11 @@ def antigravity_conv_dir() -> Path:
 
 
 def _appdata_dir() -> Path:
+    """Per-user app-data root (where VSCode-fork apps like Antigravity keep their state)."""
+    if sys.platform == "darwin":
+        return _home() / "Library" / "Application Support"
+    if os.name != "nt":
+        return Path(os.environ.get("XDG_CONFIG_HOME") or (_home() / ".config"))
     return Path(os.environ.get("APPDATA") or (_home() / "AppData" / "Roaming"))
 
 

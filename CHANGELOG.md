@@ -4,6 +4,23 @@ All notable changes to TokenScope are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **macOS app.** `TokenScope.app` — the same local server + dashboard in a native
+  WKWebView window (`desktop/macos.py`, `desktop/tokenscope-macos.spec`), built by a
+  new GitHub Actions workflow (`.github/workflows/build-macos.yml`) on every `v*` tag
+  and attached to the release as `TokenScope-macos.zip`. The tray icon, quota toasts
+  and tray popup remain Windows-only. Antigravity state and the theme file now resolve
+  to their macOS locations (`~/Library/Application Support/...`).
+- **macOS code signing + notarization.** When the Apple signing secrets are configured
+  (`MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`, `APPLE_ID`, `APPLE_TEAM_ID`,
+  `APPLE_APP_PASSWORD`), CI signs `TokenScope.app` with a Developer ID certificate
+  (hardened runtime, `desktop/entitlements.plist`), notarizes it with Apple and staples
+  the ticket, so downloads pass Gatekeeper cleanly. Without the secrets it falls back
+  to an ad-hoc signature. (`.github/workflows/build-macos.yml`)
+
 ## [1.3.1] - 2026-07-02
 
 ### Added
