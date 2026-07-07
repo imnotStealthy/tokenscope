@@ -53,10 +53,70 @@ def _set_startup(enable):
         pass
 
 
+def _mac_startup_plist():
+    return os.path.expanduser("~/Library/LaunchAgents/com.stealthy.tokenscope.plist")
+
+
+def _mac_startup_command():
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--minimized"]
+    return [sys.executable, os.path.abspath(__file__), "--minimized"]
+
+
+def _mac_startup_enabled():
+    import plistlib
+
+    try:
+        with open(_mac_startup_plist(), "rb") as f:
+            data = plistlib.load(f)
+        return data.get("ProgramArguments") == _mac_startup_command()
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def _set_mac_startup(enable):
+    import plistlib
+
+    path = _mac_startup_plist()
+    if not enable:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    data = {
+        "Label": "com.stealthy.tokenscope",
+        "ProgramArguments": _mac_startup_command(),
+        "RunAtLoad": True,
+        "KeepAlive": False,
+    }
+    with open(path, "wb") as f:
+        plistlib.dump(data, f)
+
+
 def _icon_image():
     from icon import make_icon
 
     return make_icon(64)
+
+
+def _mac_status_icon_path():
+    import os
+    import tempfile
+
+    from PIL import Image, ImageDraw
+
+    path = os.path.join(tempfile.gettempdir(), "tokenscope_status_template.png")
+    size = 36
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    bars = [(8, 20, 12, 28), (14, 15, 18, 28), (20, 10, 24, 28), (26, 6, 30, 28)]
+    for rect in bars:
+        d.rounded_rectangle(rect, radius=1, fill=(0, 0, 0, 255))
+    img.save(path)
+    return path
 
 
 class Win32Tray:
@@ -300,6 +360,27 @@ def _acquire_single_instance():
     return True
 
 
+def _acquire_file_instance_lock():
+    """Return False when another portable TokenScope process owns the lock file."""
+    global _INSTANCE_MUTEX
+    try:
+        import fcntl
+
+        if sys.platform == "darwin":
+            state_dir = os.path.expanduser("~/Library/Application Support/TokenScope")
+        else:
+            state_dir = os.path.join(os.path.expanduser("~/.local/state"), "tokenscope")
+        os.makedirs(state_dir, exist_ok=True)
+        lock_file = open(os.path.join(state_dir, "tokenscope.lock"), "w", encoding="utf-8")
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _INSTANCE_MUTEX = lock_file
+    except BlockingIOError:
+        return False
+    except Exception:
+        return True
+    return True
+
+
 def _window_hwnd(window):
     import ctypes
 
@@ -433,12 +514,171 @@ def _browser_fallback(httpd, url):
 
     webbrowser.open(url)
     try:
-        httpd.serve_forever()
+        while True:
+            time.sleep(3600)
     except KeyboardInterrupt:
         httpd.shutdown()
 
 
-def run():
+def _install_macos_status_item(window, popup, state, popup_state, icon_box):
+    try:
+        import AppKit
+        from AppKit import (
+            NSImage,
+            NSStatusBar,
+            NSVariableStatusItemLength,
+            NSApp,
+            NSScreen,
+        )
+        from Foundation import NSObject
+        from PyObjCTools import AppHelper
+    except Exception:
+        return
+
+    class MacStatusBarController(NSObject):
+        """Status-item click handler. Runs on the AppKit main thread, so it drives the
+        popup through its native NSWindow directly — pywebview's evaluate_js/show block
+        on the main runloop and would deadlock if called from here."""
+
+        def _popup_frame(self):
+            """Popup NSRect (Cocoa coords, origin bottom-left) right-aligned under the
+            status item, clamped to that screen's visible frame."""
+            width = float(popup_state.get("w") or 304)
+            height = float(popup_state.get("h") or 470)
+            button_window = icon_box["icon"]._item.button().window()
+            bf = button_window.frame()
+            screen = button_window.screen() or NSScreen.mainScreen()
+            vf = screen.visibleFrame()
+            x = bf.origin.x + bf.size.width - width
+            x = max(vf.origin.x + 4, min(x, vf.origin.x + vf.size.width - width - 4))
+            top = bf.origin.y - 6  # just below the menu bar
+            bottom = max(vf.origin.y + 4, top - height)
+            return AppKit.NSMakeRect(x, bottom, width, height)
+
+        def showDashboard_(self, sender):
+            self.dismiss_(None)
+            try:
+                window.show()  # thread-safe: orders front + activates via callAfter
+            except Exception:
+                pass
+
+        def togglePopup_(self, sender):
+            try:
+                if popup_state.get("shown"):
+                    self.dismiss_(None)
+                    return
+                # Clicking the icon while the popup is open first blurs it (JS dismiss),
+                # then this action fires — do not instantly reopen it.
+                if time.monotonic() - popup_state.get("dismissed_at", 0.0) < 0.4:
+                    return
+                native = popup.native  # NSWindow — safe, we are on the main thread
+                native.setFrame_display_(self._popup_frame(), True)
+                native.makeKeyAndOrderFront_(None)
+                native.invalidateShadow()  # recompute from the rounded card's shape
+                NSApp.activateIgnoringOtherApps_(True)
+                popup_state["shown"] = True
+                # refresh the popup data; evaluate_js blocks, so never from this thread
+                threading.Thread(
+                    target=lambda: popup.evaluate_js("window.refreshTray&&refreshTray()"),
+                    daemon=True,
+                ).start()
+            except Exception:
+                pass
+
+        def dismiss_(self, sender):
+            if popup_state.get("shown"):
+                popup_state["dismissed_at"] = time.monotonic()
+            popup_state["shown"] = False
+            try:
+                AppHelper.callAfter(popup.native.orderOut_, None)
+            except Exception:
+                pass
+
+        def quitApp_(self, sender):
+            state["quit"] = True
+            self.dismiss_(None)
+            try:
+                if icon_box.get("icon") is not None:
+                    icon_box["icon"].stop()
+            except Exception:
+                pass
+            for w in (popup, window):  # destroy BOTH windows so webview.start() returns
+                try:
+                    w.destroy()
+                except Exception:
+                    pass
+
+    class MacStatusBar:
+        def __init__(self):
+            self._controller = MacStatusBarController.alloc().init()
+            self._item = NSStatusBar.systemStatusBar().statusItemWithLength_(
+                NSVariableStatusItemLength
+            )
+            self._title = "TokenScope"
+            image = NSImage.alloc().initWithContentsOfFile_(_mac_status_icon_path())
+            if image is not None:
+                image.setTemplate_(True)
+                button = self._item.button()
+                button.setImage_(image)
+                button.setToolTip_(self._title)
+                button.setTarget_(self._controller)
+                button.setAction_("togglePopup:")
+                try:
+                    # both mouse buttons open the popup, matching the Windows tray
+                    button.sendActionOn_(
+                        AppKit.NSEventMaskLeftMouseUp | AppKit.NSEventMaskRightMouseUp
+                    )
+                except Exception:
+                    pass
+
+        @property
+        def title(self):
+            return self._title
+
+        @title.setter
+        def title(self, value):
+            self._title = (value or "TokenScope")[:127]
+
+            def apply_title():
+                try:
+                    self._item.button().setToolTip_(self._title)
+                except Exception:
+                    pass
+
+            AppHelper.callAfter(apply_title)
+
+        def set_icon(self, image):
+            pass
+
+        def notify(self, title, msg):
+            pass
+
+        def stop(self):
+            def remove_item():
+                try:
+                    NSStatusBar.systemStatusBar().removeStatusItem_(self._item)
+                except Exception:
+                    pass
+
+            AppHelper.callAfter(remove_item)
+
+    def create_item():
+        try:
+            # Drop the titled mask: macOS paints a light 1px edge highlight around
+            # titled windows (even transparent ones). Borderless removes it; the
+            # shadow is re-enabled so it follows the rounded card's alpha shape.
+            n = popup.native
+            n.setStyleMask_(AppKit.NSWindowStyleMaskBorderless)
+            n.setHasShadow_(True)
+        except Exception:
+            pass
+        icon_box["icon"] = MacStatusBar()
+        threading.Thread(target=_title_loop, args=(icon_box["icon"],), daemon=True).start()
+
+    AppHelper.callAfter(create_item)
+
+
+def _run_windows():
     if not _acquire_single_instance():
         return
 
@@ -783,6 +1023,146 @@ def run():
     except Exception:
         pass
     httpd.shutdown()
+
+
+def _run_macos():
+    if not _acquire_file_instance_lock():
+        return
+
+    httpd, port = serve_background()
+    url = f"http://127.0.0.1:{port}/"
+
+    try:
+        import webview
+    except Exception:
+        _browser_fallback(httpd, url)
+        return
+
+    try:
+        webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
+        webview.settings["ALLOW_DOWNLOADS"] = True
+    except Exception:
+        pass
+
+    minimized = "--minimized" in sys.argv
+    window = webview.create_window(
+        "TokenScope",
+        url,
+        width=1320,
+        height=900,
+        min_size=(900, 600),
+        background_color="#000000",
+        hidden=minimized,
+    )
+    state = {"quit": False}
+    icon_box = {"icon": None}
+    popup_state = {"w": 304, "h": 470, "shown": False}
+
+    class MacTrayApi:
+        def show_dashboard(self):
+            try:
+                if icon_box["icon"] is not None:
+                    icon_box["icon"]._controller.showDashboard_(None)
+            except Exception:
+                pass
+
+        def quit_app(self):
+            try:
+                if icon_box["icon"] is not None:
+                    icon_box["icon"]._controller.quitApp_(None)
+            except Exception:
+                state["quit"] = True
+                try:
+                    window.destroy()
+                except Exception:
+                    pass
+
+        def dismiss(self):
+            try:
+                if icon_box["icon"] is not None:
+                    icon_box["icon"]._controller.dismiss_(None)
+            except Exception:
+                popup_state["shown"] = False
+                try:
+                    popup.hide()
+                except Exception:
+                    pass
+
+        def startup_label(self):
+            return "Start at Login"
+
+        def startup_enabled(self):
+            return bool(_mac_startup_enabled())
+
+        def toggle_startup(self):
+            _set_mac_startup(not _mac_startup_enabled())
+            return bool(_mac_startup_enabled())
+
+        def resize(self, w, h):
+            try:
+                popup_state["w"], popup_state["h"] = int(w), int(h)
+                popup.resize(int(w), int(h))
+            except Exception:
+                pass
+
+    # NOTE: unlike Windows, do NOT create this off-screen (x=-4000): moving a window
+    # fully off-screen makes window.screen() None and crashes pywebview's cocoa init.
+    # hidden=True is enough on macOS — WKWebView still loads /tray while hidden.
+    popup = webview.create_window(
+        "TokenScope Menu",
+        url + "tray",
+        width=popup_state["w"],
+        height=popup_state["h"],
+        frameless=True,
+        easy_drag=False,
+        on_top=True,
+        background_color="#0A0A0A",
+        transparent=True,  # only the rounded HTML card shows — no native window edge
+        hidden=True,
+        js_api=MacTrayApi(),
+    )
+
+    def on_closing():
+        if not state["quit"]:
+            window.hide()
+            return False
+        return True
+
+    try:
+        window.events.closing += on_closing
+    except Exception:
+        pass
+
+    try:
+        webview.start(
+            func=_install_macos_status_item,
+            args=(window, popup, state, popup_state, icon_box),
+        )
+    finally:
+        try:
+            if icon_box["icon"] is not None:
+                icon_box["icon"].stop()
+        except Exception:
+            pass
+        httpd.shutdown()
+
+
+def _run_portable():
+    if not _acquire_file_instance_lock():
+        return
+
+    httpd, port = serve_background()
+    url = f"http://127.0.0.1:{port}/"
+    _browser_fallback(httpd, url)
+
+
+def run():
+    if sys.platform == "win32":
+        _run_windows()
+    elif sys.platform == "darwin":
+        _run_macos()
+    else:
+        _run_portable()
 
 
 if __name__ == "__main__":

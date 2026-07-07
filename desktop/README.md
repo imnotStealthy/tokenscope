@@ -1,14 +1,14 @@
-# TokenScope — Tray app (.exe)
+# TokenScope — Desktop app
 
-A lightweight Windows system-tray app that shows your **live local token usage**
-(Claude Code + Codex) and **subscription utilization** (5h / weekly / Sonnet / Spark
-/ credits) in a dark dashboard — no MongoDB, no Node, no cloud.
+A lightweight desktop app that shows your **live local token usage** (Claude Code +
+Codex) and **subscription utilization** (5h / weekly / Sonnet / Spark / credits) in
+a dark dashboard — no MongoDB, no Node, no cloud.
 
 It reuses the verified backend reader `../backend/local_sources.py` and reads only
 local files: `~/.claude`, `~/.codex`, `~/.claude-rpc`. Nothing is sent anywhere; the
 only network call is the optional Anthropic OAuth *usage* read (same as claude-rpc).
 
-## Use the prebuilt exe
+## Use the prebuilt Windows exe
 
 ```
 desktop\dist\TokenScope.exe
@@ -23,7 +23,7 @@ The dashboard auto-refreshes every 30s; use the 7d / 30d / 90d buttons to change
 range. (On the rare host without the WebView2 runtime it falls back to opening the
 default browser.)
 
-## Build it yourself
+## Build it yourself on Windows
 
 ```bat
 cd desktop
@@ -38,8 +38,10 @@ This creates a venv, installs `requirements.txt` + PyInstaller, and produces
 A native macOS build (`TokenScope.app`) is produced by the
 `.github/workflows/build-macos.yml` GitHub Actions workflow on every `v*` tag and
 attached to the release as `TokenScope-macos.zip`. It runs the same server and
-dashboard in a WKWebView window (`macos.py` + `tokenscope-macos.spec`); the tray
-icon, quota toasts and tray popup remain Windows-only.
+dashboard in a native window, adds a menu bar status item showing the same styled
+usage popup as Windows (`tray.py` + `tokenscope-macos.spec`), and closing the
+window hides it to the menu bar. "Start at Login" installs a user LaunchAgent
+(`~/Library/LaunchAgents/com.stealthy.tokenscope.plist`).
 
 ### Signing & notarization
 
@@ -63,14 +65,14 @@ Security*).
 
 To build locally on a Mac:
 
-```sh
+```bash
 cd desktop
-python3 -m venv .venv && source .venv/bin/activate
-pip install pyinstaller pywebview pillow requests pyjwt
-python -c "import os; from icon import make_icon; os.makedirs('icon.iconset', exist_ok=True); [make_icon(s).save(f'icon.iconset/icon_{s}x{s}.png') or make_icon(s*2).save(f'icon.iconset/icon_{s}x{s}@2x.png') for s in (16,32,128,256,512)]"
-iconutil -c icns icon.iconset -o tokenscope.icns
-pyinstaller --noconfirm tokenscope-macos.spec   # -> dist/TokenScope.app
+./build_macos.sh
+open dist/TokenScope.app
 ```
+
+This creates a venv, installs `requirements.txt` + PyInstaller, generates the
+`.icns` icon and produces `dist/TokenScope.app`.
 
 ## Run without building (dev)
 
@@ -81,17 +83,25 @@ pip install -r requirements.txt
 python tray.py          REM  or:  python server.py  (server only)
 ```
 
+On macOS:
+
+```bash
+cd desktop
+./run-dev-macos.sh
+```
+
 ## Files
 
 | File | Role |
 |---|---|
-| `tray.py` | Windows: native window (pywebview) + system-tray icon + menu |
-| `macos.py` | macOS: native WKWebView window (no tray) |
+| `tray.py` | Windows & macOS: native window (pywebview) + tray / menu bar icon + styled popup |
+| `macos.py` | legacy macOS window-only entry (superseded by `tray.py`) |
 | `server.py` | stdlib HTTP server: `/` (dashboard) + `/api/local/{summary,utilization,status}` |
 | `web.py` | embedded single-file HTML/JS dashboard |
 | `tokenscope-tray.spec` | PyInstaller build config (Windows .exe) |
-| `tokenscope-macos.spec` | PyInstaller build config (macOS .app, built in CI) |
-| `build.bat` / `run-dev.bat` | build / dev-run helpers |
+| `tokenscope-macos.spec` | PyInstaller build config (macOS .app, also built in CI) |
+| `build.bat` / `run-dev.bat` | Windows build / dev-run helpers |
+| `build_macos.sh` / `run-dev-macos.sh` | macOS build / dev-run helpers |
 
 ## Notes
 

@@ -2,3 +2,5 @@ pywebview>=5.0
 pillow>=10.0.0
 requests>=2.31.0
 pyjwt>=2.8.0
+pyobjc-framework-Cocoa>=10.0,<12; sys_platform == "darwin"
+pyobjc-framework-WebKit>=10.0,<12; sys_platform == "darwin"
