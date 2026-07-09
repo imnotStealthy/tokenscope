@@ -94,6 +94,13 @@ def claude_pricing(model_id: str) -> Tuple[str, float, float]:
 def codex_pricing(model_id: str) -> Tuple[str, float, float]:
     """Return (family_label, input_rate, output_rate) per 1M tokens for an OpenAI/Codex model."""
     b = (model_id or "").lower()
+    if re.search(r"gpt[ .-]?5[ .-]?6", b):
+        if "luna" in b:
+            return ("GPT-5.6 Luna", 1.0, 6.0)
+        if "terra" in b:
+            return ("GPT-5.6 Terra", 2.50, 15.0)
+        if "sol" in b:
+            return ("GPT-5.6 Sol", 5.0, 30.0)
     if "codex" in b:
         return ("Codex", 1.75, 14.0)
     if "gpt-5.5" in b or "gpt-5-5" in b:

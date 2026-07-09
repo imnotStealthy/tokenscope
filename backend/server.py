@@ -71,6 +71,9 @@ PRICING = {
     "gpt-5.2": {"input": 1.25, "output": 10.0},
     "gpt-5-2": {"input": 1.25, "output": 10.0},
     "gpt-5.4": {"input": 1.5, "output": 12.0},
+    "gpt-5.6-sol": {"input": 5.0, "output": 30.0},
+    "gpt-5.6-terra": {"input": 2.5, "output": 15.0},
+    "gpt-5.6-luna": {"input": 1.0, "output": 6.0},
     "gpt-4o": {"input": 2.5, "output": 10.0},
     "gpt-4.1": {"input": 2.0, "output": 8.0},
     "codex-1": {"input": 1.25, "output": 10.0},
@@ -87,7 +90,7 @@ VALID_TOOLS = {"claude_api", "codex", "antigravity"}
 
 def compute_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     key = (model or "").lower().strip()
-    p = PRICING.get(key)
+    p = PRICING.get(key) or PRICING.get(key.replace(" ", "-"))
     if not p:
         # try loose match
         for k, v in PRICING.items():

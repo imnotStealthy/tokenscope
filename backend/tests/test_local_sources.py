@@ -146,6 +146,12 @@ def test_summary_per_project_and_tokens():
             _teardown()
 
 
+def test_gpt_5_6_pricing_tiers():
+    assert ls.codex_pricing("gpt-5.6-sol")[1:] == (5.0, 30.0)
+    assert ls.codex_pricing("GPT 5.6 Terra")[1:] == (2.5, 15.0)
+    assert ls.codex_pricing("gpt-5-6-luna")[1:] == (1.0, 6.0)
+
+
 def test_claude_utilization_cache_fallback():
     with tempfile.TemporaryDirectory() as tmp:
         _setup(tmp)
